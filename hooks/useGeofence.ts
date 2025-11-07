@@ -6,9 +6,10 @@ import { useAttendanceStore } from "@/store/attendanceStore";
 import { LatLng, MapLayer, MapMarker, MapShape } from "@/types/geofence";
 import { Asset } from "expo-asset";
 import * as FileSystem from "expo-file-system/legacy";
+import * as IntentLauncher from "expo-intent-launcher";
 import * as Location from "expo-location";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert } from "react-native";
+import { Alert, Linking, Platform } from "react-native";
 import { MapShapeType } from "react-native-leaflet-view";
 
 interface AttendanceCoordinates {
@@ -294,7 +295,7 @@ export function useGeofence(
         const asset = Asset.fromModule(require("../assets/leaflet.html"));
         await asset.downloadAsync();
         const htmlContent = await FileSystem.readAsStringAsync(asset.localUri!);
-        
+
         // Store the content in our cache and set the state
         cachedHtml = htmlContent;
         setHtml(htmlContent);
@@ -312,41 +313,126 @@ export function useGeofence(
 
     const initializeLocation = async () => {
       try {
+        // Check if location services are enabled at device level
         const locationServicesEnabled =
           await Location.hasServicesEnabledAsync();
+
         if (!locationServicesEnabled) {
           Alert.alert(
-            "Location Error",
-            "Current location is unavailable. Make sure that location services are enabled",
+            "Location Services Disabled",
+            "Location services are turned off on your device. Please enable them to use this feature.",
+            [
+              { text: "Cancel", style: "cancel" },
+              {
+                text: "Open Settings",
+                onPress: () => {
+                  if (Platform.OS === "android") {
+                    IntentLauncher.startActivityAsync(
+                      IntentLauncher.ActivityAction.LOCATION_SOURCE_SETTINGS,
+                    );
+                  } else {
+                    Linking.openURL("app-settings:");
+                  }
+                },
+              },
+            ],
           );
           return;
         }
 
-        const { status } = await Location.requestForegroundPermissionsAsync();
+        // Check for app permissions
+        let { status } = await Location.getForegroundPermissionsAsync();
+
         if (status !== "granted") {
-          Alert.alert("Permission denied", "Location permission is required.");
-          return;
+          // Request permission if not granted
+          const permissionResponse =
+            await Location.requestForegroundPermissionsAsync();
+          status = permissionResponse.status;
+
+          if (status !== "granted") {
+            Alert.alert(
+              "Permission Denied",
+              "Location permission is required for attendance tracking. Please grant permission in your device settings.",
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Open Settings",
+                  onPress: () => {
+                    if (Platform.OS === "android") {
+                      Linking.openSettings();
+                    } else {
+                      Linking.openURL("app-settings:");
+                    }
+                  },
+                },
+              ],
+            );
+            return;
+          }
         }
 
-        const { coords } = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
+        // Try to get current position with timeout
+        try {
+          const { coords } = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
 
-        const initialPosition = {
-          lat: coords.latitude,
-          lng: coords.longitude,
-        };
+          const initialPosition = {
+            lat: coords.latitude,
+            lng: coords.longitude,
+          };
 
-        if (isComponentMounted) {
-          setUserPos(initialPosition);
-          setInitialPos(initialPosition);
-          const detectedLocation = checkGeofences(initialPosition);
-          setCurrentLocation(detectedLocation);
-          setIsInitialized(true);
+          if (isComponentMounted) {
+            setUserPos(initialPosition);
+            setInitialPos(initialPosition);
+            const detectedLocation = checkGeofences(initialPosition);
+            setCurrentLocation(detectedLocation);
+            setIsInitialized(true);
+            updateAttendanceLocation(initialPosition, detectedLocation);
+          }
+        } catch (locationError) {
+          console.error("Error getting location:", locationError);
 
-          updateAttendanceLocation(initialPosition, detectedLocation);
+          // Try with last known location as fallback
+          try {
+            const lastKnown = await Location.getLastKnownPositionAsync();
+            if (lastKnown && isComponentMounted) {
+              const fallbackPosition = {
+                lat: lastKnown.coords.latitude,
+                lng: lastKnown.coords.longitude,
+              };
+
+              setUserPos(fallbackPosition);
+              setInitialPos(fallbackPosition);
+              const detectedLocation = checkGeofences(fallbackPosition);
+              setCurrentLocation(detectedLocation);
+              setIsInitialized(true);
+              updateAttendanceLocation(fallbackPosition, detectedLocation);
+
+              Alert.alert(
+                "Using Last Known Location",
+                "Unable to get current location. Using last known location. Please ensure you have good GPS signal.",
+              );
+            } else {
+              throw new Error("No location available");
+            }
+          } catch (fallbackError) {
+            Alert.alert(
+              "Location Error",
+              "Unable to determine your location. Please ensure:\n\n" +
+                "1. Location services are enabled\n" +
+                "2. GPS/Location is turned on\n" +
+                "3. You have good GPS signal\n" +
+                "4. App has location permission",
+              [
+                { text: "Retry", onPress: () => initializeLocation() },
+                { text: "Cancel", style: "cancel" },
+              ],
+            );
+          }
         }
 
+        // Continue with location watching...
         subscription = await Location.watchPositionAsync(
           {
             accuracy: Location.Accuracy.Balanced,
@@ -364,13 +450,20 @@ export function useGeofence(
             const detectedLocation = checkGeofences(newPos);
             setUserPos(newPos);
             setCurrentLocation(detectedLocation);
-
             updateAttendanceLocation(newPos, detectedLocation);
           },
         );
       } catch (e) {
         if (isComponentMounted) {
-          Alert.alert("Location Error", (e as Error).message);
+          console.error("Location initialization error:", e);
+          Alert.alert(
+            "Location Setup Failed",
+            (e as Error).message || "Failed to initialize location services",
+            [
+              { text: "Retry", onPress: () => initializeLocation() },
+              { text: "Cancel", style: "cancel" },
+            ],
+          );
         }
       }
     };
