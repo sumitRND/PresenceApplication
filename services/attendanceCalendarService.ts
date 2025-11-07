@@ -50,29 +50,54 @@ export const getCachedHolidays = async (
   month: number
 ): Promise<Holiday[]> => {
   const cacheKey = `cached_holidays_${year}_${month}`;
+  console.log('🗓️ Loading holidays for:', year, month);
+  
   try {
     const cached = await AsyncStorage.getItem(cacheKey);
-    if (cached) return JSON.parse(cached) as Holiday[];
+    if (cached) {
+      console.log('✅ Holidays loaded from cache');
+      return JSON.parse(cached) as Holiday[];
+    }
 
+    console.log('📡 Fetching holidays from API...');
     const apiClient = createApiClient();
-    const { data } = await apiClient.get<{
-      success: boolean;
-      data: { entries: any[] };
-    }>("/calendar", {
+    
+    const response = await apiClient.get("/calendar", {
       params: { year, month },
+      timeout: 10000
     });
+    
+    console.log('✅ Holidays API response:', response.status);
+    console.log('Holiday data:', JSON.stringify(response.data, null, 2));
+    
+    const { data } = response;
+    
+    if (!data.success || !data.data || !data.data.entries) {
+      console.error('❌ Invalid holiday response structure');
+      return [];
+    }
 
-    const holidays: Holiday[] = data.data.entries.map((entry) => ({
+    const holidays: Holiday[] = data.data.entries.map((entry: any) => ({
       date: entry.date.split("T")[0],
       description: entry.description,
       isHoliday: entry.isHoliday,
       isWeekend: entry.isWeekend,
     }));
 
+    console.log('✅ Holidays processed:', holidays.length);
     await AsyncStorage.setItem(cacheKey, JSON.stringify(holidays));
     return holidays;
-  } catch (error) {
-    console.error("Error loading holidays:", error);
+    
+  } catch (error: any) {
+    console.error("❌ Error loading holidays:", error);
+    
+    if (error.response) {
+      console.error('🔴 Holiday error response:', error.response.data);
+      console.error('🔴 Holiday error status:', error.response.status);
+    } else if (error.request) {
+      console.error('📡 No holiday response received');
+    }
+    
     return [];
   }
 };
@@ -92,30 +117,52 @@ export const getAttendanceCalendar = async (
     if (month) params.month = month;
 
     const apiClient = createApiClient();
-    const { data } = await apiClient.get(
+    
+    console.log('📡 Starting attendance API call...');
+    console.log('URL:', `${API_BASE}/attendance/calendar/${employeeNumber}`);
+    console.log('Params:', params);
+    
+    const response = await apiClient.get(
       `/attendance/calendar/${employeeNumber}`,
       {
         params,
+        timeout: 10000 // 10 second timeout
       }
     );
 
+    console.log('✅ Response received:', response.status);
+    console.log('Response data:', JSON.stringify(response.data, null, 2));
+    
+    const { data } = response;
+
     if (data.success && data.data) {
-      const mappedAttendances: AttendanceDate[] = data.data.attendances.map(
-        (att: any) => ({
+      console.log('📊 Raw attendances count:', data.data.attendances?.length || 0);
+      
+      const mappedAttendances: AttendanceDate[] = data.data.attendances
+        .filter((att: any) => {
+          const hasCheckin = !!att.checkinTime;
+          if (!hasCheckin) {
+            console.log('⚠️ Skipping attendance without checkin:', att.date);
+          }
+          return hasCheckin;
+        })
+        .map((att: any) => ({
           date: att.date.split("T")[0],
           present: 1,
           absent: 0,
           attendance: {
-            takenLocation: att.takenLocation,
+            takenLocation: att.takenLocation || att.locationType || null,
             checkinTime: att.checkinTime,
             checkoutTime: att.checkoutTime,
             sessionType: att.sessionType,
-            fullDay: att.attendanceType === "FULL_DAY",
+            fullDay: att.attendanceType === "FULL_DAY" || att.autoCompleted === true,
             halfDay: att.attendanceType === "HALF_DAY",
-            isCheckout: !!att.checkoutTime,
+            isCheckout: !!att.checkoutTime || att.autoCompleted === true,
           },
-        })
-      );
+        }));
+
+      console.log('✅ Mapped attendances count:', mappedAttendances.length);
+      console.log('📈 Statistics:', data.data.statistics);
 
       return {
         success: true,
@@ -126,15 +173,34 @@ export const getAttendanceCalendar = async (
       };
     }
 
-    return { success: false, error: "No data received" };
+    console.log('❌ Invalid response structure');
+    return { success: false, error: "Invalid response structure" };
+    
   } catch (error: any) {
-    console.error("Get attendance calendar error:", error);
+    console.error('❌ Get attendance calendar error:', error);
+    
+    if (error.code === 'ECONNABORTED') {
+      console.error('⏱️ Request timeout');
+      return {
+        success: false,
+        error: "Request timeout. Server took too long to respond.",
+      };
+    }
+    
+    if (error.response) {
+      console.error('🔴 Error response:', error.response.data);
+      console.error('🔴 Error status:', error.response.status);
+      console.error('🔴 Error headers:', error.response.headers);
+    } else if (error.request) {
+      console.error('📡 No response received');
+      console.error('Request details:', error.request._url);
+    } else {
+      console.error('⚠️ Error message:', error.message);
+    }
+    
     return {
       success: false,
-      error:
-        error.response?.data?.error ||
-        error.message ||
-        "Failed to fetch attendance calendar",
+      error: error.response?.data?.error || error.message || "Failed to fetch attendance",
     };
   }
 };

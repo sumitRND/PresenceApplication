@@ -312,6 +312,16 @@ export function useGeofence(
 
     const initializeLocation = async () => {
       try {
+        const locationServicesEnabled =
+          await Location.hasServicesEnabledAsync();
+        if (!locationServicesEnabled) {
+          Alert.alert(
+            "Location Error",
+            "Current location is unavailable. Make sure that location services are enabled",
+          );
+          return;
+        }
+
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== "granted") {
           Alert.alert("Permission denied", "Location permission is required.");

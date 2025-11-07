@@ -67,7 +67,7 @@ export const AttendanceCalendar: React.FC<AttendanceCalendarProps> = ({
           selectedMonth,
         );
         setHolidays(cachedHolidays);
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error loading holidays:", error);
         setHolidays([]);
       }
@@ -83,80 +83,171 @@ export const AttendanceCalendar: React.FC<AttendanceCalendarProps> = ({
     return !isWeekend && !isHoliday;
   };
 
-  const fetchAttendanceData = useCallback(
-    async (showLoading = true) => {
-      try {
-        if (showLoading && !isChangingMonth) setLoading(true);
+const fetchAttendanceData = useCallback(
+  async (showLoading = true) => {
+    console.log('🚀 fetchAttendanceData called', {
+      showLoading,
+      isChangingMonth,
+      employeeCode,
+      selectedYear,
+      selectedMonth,
+      holidaysCount: holidays.length
+    });
+    
+    try {
+      if (showLoading && !isChangingMonth) {
+        console.log('⏳ Setting loading to true');
+        setLoading(true);
+      }
 
-        const response = await getAttendanceCalendar(
-          employeeCode,
+      console.log('📡 Calling getAttendanceCalendar...');
+      const startTime = Date.now();
+      
+      const response = await getAttendanceCalendar(
+        employeeCode,
+        selectedYear,
+        selectedMonth,
+      );
+      
+      const responseTime = Date.now() - startTime;
+      console.log(`📊 Response received in ${responseTime}ms:`, {
+        success: response.success,
+        hasData: !!response.data,
+        error: response.error
+      });
+
+      if (response.success && response.data) {
+        const attendances = response.data.attendances;
+        console.log(`✅ Got ${attendances.length} attendance records`);
+
+        // Create a map for quick lookup
+        const attendanceMap = new Map(attendances.map((a) => [a.date, a]));
+        console.log('📍 Attendance map created with dates:', Array.from(attendanceMap.keys()));
+
+        // Calculate days in month
+        const daysInMonth = new Date(
           selectedYear,
           selectedMonth,
-        );
+          0,
+        ).getDate();
+        console.log(`📅 Days in month ${selectedMonth}/${selectedYear}: ${daysInMonth}`);
+        
+        const allDatesInMonth: AttendanceDate[] = [];
+        const today = new Date().toISOString().split("T")[0];
+        console.log(`📆 Today's date: ${today}`);
 
-        if (response.success && response.data) {
-          const attendances = response.data.attendances;
+        let presentCount = 0;
+        let absentCount = 0;
+        let skippedFuture = 0;
+        let skippedWeekendHoliday = 0;
 
-          const attendanceMap = new Map(attendances.map((a) => [a.date, a]));
+        for (let day = 1; day <= daysInMonth; day++) {
+          const dateStr = `${selectedYear}-${String(selectedMonth).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 
-          const daysInMonth = new Date(
-            selectedYear,
-            selectedMonth,
-            0,
-          ).getDate();
-          const allDatesInMonth: AttendanceDate[] = [];
-          const today = new Date().toISOString().split("T")[0];
-
-          for (let day = 1; day <= daysInMonth; day++) {
-            const dateStr = `${selectedYear}-${String(selectedMonth).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-
-            if (dateStr > today) continue;
-
-            const existingAttendance = attendanceMap.get(dateStr);
-
-            if (existingAttendance) {
-              allDatesInMonth.push(existingAttendance);
-            } else {
-              const dayOfWeek = new Date(dateStr).getDay();
-              const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-              const isHoliday = holidays.some(
-                (h) => h.date.split("T")[0] === dateStr,
-              );
-
-              if (!isWeekend && !isHoliday) {
-                allDatesInMonth.push({
-                  date: dateStr,
-                  present: 0,
-                  absent: 1,
-                  attendance: undefined,
-                });
-              }
-            }
+          // Skip future dates
+          if (dateStr > today) {
+            skippedFuture++;
+            continue;
           }
 
-          setAttendanceDates(allDatesInMonth);
-          setStatistics(response.data.statistics);
+          const existingAttendance = attendanceMap.get(dateStr);
 
-          const marked = getMarkedDates(allDatesInMonth, holidays);
-          setMarkedDates(marked);
-        } else if (!isChangingMonth) {
-          Alert.alert(
-            "Error",
-            response.error || "Failed to load attendance data",
-          );
+          if (existingAttendance) {
+            allDatesInMonth.push(existingAttendance);
+            presentCount++;
+            console.log(`✅ Found attendance for ${dateStr}:`, {
+              checkin: existingAttendance.attendance?.checkinTime,
+              checkout: existingAttendance.attendance?.checkoutTime,
+              isCheckout: existingAttendance.attendance?.isCheckout
+            });
+          } else {
+            const dayOfWeek = new Date(dateStr).getDay();
+            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+            const isHoliday = holidays.some(
+              (h) => h.date.split("T")[0] === dateStr,
+            );
+
+            if (!isWeekend && !isHoliday) {
+              // Mark as absent for working days without attendance
+              allDatesInMonth.push({
+                date: dateStr,
+                present: 0,
+                absent: 1,
+                attendance: undefined,
+              });
+              absentCount++;
+              console.log(`❌ Marked absent for ${dateStr} (working day)`);
+            } else {
+              skippedWeekendHoliday++;
+              console.log(`⏭️ Skipped ${dateStr}: weekend=${isWeekend}, holiday=${isHoliday}`);
+            }
+          }
         }
-      } catch (error) {
-        console.error("Error fetching attendance:", error);
+
+        console.log('📊 Attendance summary:', {
+          totalProcessed: allDatesInMonth.length,
+          present: presentCount,
+          absent: absentCount,
+          skippedFuture: skippedFuture,
+          skippedWeekendHoliday: skippedWeekendHoliday
+        });
+
+        setAttendanceDates(allDatesInMonth);
+        console.log('✅ Attendance dates set in state');
+
+        if (response.data.statistics) {
+          setStatistics(response.data.statistics);
+          console.log('📈 Statistics set:', response.data.statistics);
+        }
+
+        // Generate marked dates for calendar
+        console.log('🎨 Generating marked dates...');
+        const marked = getMarkedDates(allDatesInMonth, holidays);
+        setMarkedDates(marked);
+        console.log(`✅ Marked ${Object.keys(marked).length} dates on calendar`);
+        
+        console.log('✅ fetchAttendanceData completed successfully');
+      } else {
+        console.log('❌ Response was not successful:', {
+          success: response.success,
+          error: response.error,
+          hasData: !!response.data
+        });
+        
         if (!isChangingMonth) {
-          Alert.alert("Error", "Failed to load attendance data");
+          const errorMessage = response.error || "Failed to load attendance data";
+          console.log('🔔 Showing error alert:', errorMessage);
+          Alert.alert("Error", errorMessage);
         }
-      } finally {
-        if (showLoading && !isChangingMonth) setLoading(false);
-        setIsChangingMonth(false);
       }
-    },
-    [employeeCode, selectedYear, selectedMonth, holidays, isChangingMonth],
-  );
+    } catch (error: any) {
+      console.error("❌ Exception in fetchAttendanceData:", error);
+      console.error('Error type:', error?.constructor?.name);
+      console.error('Error message:', error?.message);
+      console.error('Error stack:', error?.stack);
+      
+      if (!isChangingMonth) {
+        console.log('🔔 Showing generic error alert');
+        Alert.alert("Error", "Failed to load attendance data");
+      }
+    } finally {
+      console.log('🏁 Finally block executing', {
+        showLoading,
+        isChangingMonth,
+        willSetLoadingFalse: showLoading && !isChangingMonth
+      });
+      
+      if (showLoading && !isChangingMonth) {
+        console.log('⏸️ Setting loading to false');
+        setLoading(false);
+      }
+      
+      setIsChangingMonth(false);
+      console.log('✅ fetchAttendanceData cleanup complete');
+    }
+  },
+  [employeeCode, selectedYear, selectedMonth, holidays, isChangingMonth],
+);
 
   useEffect(() => {
     if (holidays.length > 0) {
@@ -164,36 +255,36 @@ export const AttendanceCalendar: React.FC<AttendanceCalendarProps> = ({
     }
   }, [fetchAttendanceData, holidays]);
 
-  useEffect(() => {
-    const today = new Date().toISOString().split("T")[0];
-    const currentMonth = new Date().getMonth() + 1;
-    const currentYear = new Date().getFullYear();
-    if (selectedMonth === currentMonth && selectedYear === currentYear) {
-      const todayRecord = attendanceRecords.find(
-        (record) => record.date === today,
-      );
-      if (todayRecord || todayAttendanceMarked) {
-        const timeoutId = setTimeout(() => {
-          fetchAttendanceData(false);
-        }, 1000);
-        return () => clearTimeout(timeoutId);
-      }
+useEffect(() => {
+  const today = new Date().toISOString().split("T")[0];
+  const currentMonth = new Date().getMonth() + 1;
+  const currentYear = new Date().getFullYear();
+  if (selectedMonth === currentMonth && selectedYear === currentYear) {
+    const todayRecord = attendanceRecords.find(
+      (record) => record.date === today,
+    );
+    if (todayRecord || todayAttendanceMarked) {
+      const timeoutId = setTimeout(() => {
+        fetchAttendanceData(); // Remove the 'false' parameter
+      }, 1000);
+      return () => clearTimeout(timeoutId);
     }
-  }, [
-    attendanceRecords,
-    todayAttendanceMarked,
-    selectedMonth,
-    selectedYear,
-    fetchAttendanceData,
-  ]);
+  }
+}, [
+  attendanceRecords,
+  todayAttendanceMarked,
+  selectedMonth,
+  selectedYear,
+  fetchAttendanceData,
+]);
 
-  useFocusEffect(
-    useCallback(() => {
-      if (holidays.length > 0) {
-        fetchAttendanceData(false);
-      }
-    }, [fetchAttendanceData, holidays]),
-  );
+useFocusEffect(
+  useCallback(() => {
+    if (holidays.length > 0) {
+      fetchAttendanceData(); // Remove the 'false' parameter
+    }
+  }, [fetchAttendanceData, holidays]),
+);
 
   const isFieldTrip = useMemo(() => {
     if (!selectedDate || !fieldTripDates || !Array.isArray(fieldTripDates))
@@ -883,4 +974,3 @@ if (item.present === 1) {
 
   return marked;
 };
-
