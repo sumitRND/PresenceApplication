@@ -154,9 +154,10 @@ export function useGeofence(
 
         return coordinates;
       } catch (error) {
+        console.error("Error capturing location for attendance:", error);
         Alert.alert(
           "Location Error",
-          "Failed to capture location for attendance",
+          "Failed to get your current location. Please ensure location services are enabled, you have a clear GPS signal, and the app has location permissions.",
         );
         return null;
       }

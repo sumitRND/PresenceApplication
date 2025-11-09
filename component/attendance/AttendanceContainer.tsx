@@ -133,13 +133,10 @@ export function AttendanceContainer() {
   }, [session, userName, checkFieldTripStatus]);
 
 const handleUpload = async () => {
-  const userCoordinates = geofence.userPos;
+  const userCoordinates = await geofence.captureLocationForAttendance();
 
   if (!userCoordinates) {
-    Alert.alert(
-      "Error",
-      "Unable to get your current location. Please ensure location services are enabled."
-    );
+    // The error is already shown in captureLocationForAttendance, so just return
     return;
   }
 
@@ -154,9 +151,9 @@ const handleUpload = async () => {
   }
 
   const finalLocation = attendanceValidation.getLocationStatus(
-    userCoordinates,
+    { lat: userCoordinates.latitude, lng: userCoordinates.longitude },
     department || "",
-    userLocationType
+    userLocationType,
   );
 
   const { employeeNumber } = useAuthStore.getState();
@@ -174,8 +171,8 @@ const handleUpload = async () => {
       photos,
       audioRecording: audioRecording || undefined,
       location: finalLocation,
-      latitude: userCoordinates?.lat,
-      longitude: userCoordinates?.lng,
+      latitude: userCoordinates?.latitude,
+      longitude: userCoordinates?.longitude,
     });
 
     if (result.success) {
