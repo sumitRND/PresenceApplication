@@ -5,6 +5,8 @@ import { useCamera } from "@/hooks/useCamera";
 import { useGeofence as useLocation } from "@/hooks/useGeofence";
 import { NotificationProvider } from "@/provider/NotificationProvider";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as IntentLauncher from "expo-intent-launcher";
+import * as Location from "expo-location";
 import {
   router,
   Stack,
@@ -16,12 +18,13 @@ import { useEffect, useState } from "react";
 import {
   Alert,
   AppState,
+  Platform,
   Text,
   TextInput,
   TouchableOpacity,
 } from "react-native";
-import { useAuthStore } from "../store/authStore";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { useAuthStore } from "../store/authStore";
 
 // Global configuration for Text and TextInput
 // This helps maintain consistency across the app
@@ -133,21 +136,56 @@ function TermsGate({ children }: { children: React.ReactNode }) {
     checkTermsAcceptance();
   }, []);
 
-  const handleAccept = async () => {
-    setProcessing(true);
-    try {
-      // Request all required permissions
-      await Promise.all([requestCamera(), requestMic(), requestLocation()]);
+// In app/_layout.tsx, update the handleAccept function:
 
-      // Mark terms as accepted permanently (survives app reinstalls only if not clearing app data)
-      await AsyncStorage.setItem("termsAcceptedOnce", "true");
-      setHasAcceptedTerms(true);
-    } catch (error) {
-      console.error("Error accepting terms:", error);
-    } finally {
-      setProcessing(false);
+const handleAccept = async () => {
+  setProcessing(true);
+  try {
+    // For Android, ensure location services are enabled first
+    if (Platform.OS === 'android') {
+      const locationServicesEnabled = await Location.hasServicesEnabledAsync();
+      if (!locationServicesEnabled) {
+        Alert.alert(
+          "Enable Location Services",
+          "Please enable location services on your device before continuing.",
+          [
+            {
+              text: "Open Settings",
+              onPress: async () => {
+                await IntentLauncher.startActivityAsync(
+                  IntentLauncher.ActivityAction.LOCATION_SOURCE_SETTINGS
+                );
+                // Don't continue with setup
+                setProcessing(false);
+                return;
+              }
+            },
+            {
+              text: "Cancel",
+              style: "cancel",
+              onPress: () => {
+                setProcessing(false);
+              }
+            }
+          ]
+        );
+        return;
+      }
     }
-  };
+
+    // Request all required permissions
+    await Promise.all([requestCamera(), requestMic(), requestLocation()]);
+
+    // Mark terms as accepted permanently
+    await AsyncStorage.setItem("termsAcceptedOnce", "true");
+    setHasAcceptedTerms(true);
+  } catch (error) {
+    console.error("Error accepting terms:", error);
+    Alert.alert("Error", "Failed to setup permissions. Please try again.");
+  } finally {
+    setProcessing(false);
+  }
+};
 
   // Loading state
   if (hasAcceptedTerms === null) {

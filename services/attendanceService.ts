@@ -1,6 +1,7 @@
 import { useAuthStore } from "@/store/authStore";
 import { AttendanceProps } from "@/types/geofence";
 import axios from "axios";
+import { Platform } from "react-native"; // Added this import
 
 const API_BASE = process.env.EXPO_PUBLIC_API_BASE;
 
@@ -79,8 +80,16 @@ export const uploadAttendanceData = async ({
     }
 
     if (audioRecording?.uri) {
+      // FIX: Ensure proper file URI format for Android
+      let audioUri = audioRecording.uri;
+
+      // Add file:// prefix if not present and path starts with /
+      if (Platform.OS === 'android' && audioUri.startsWith('/')) {
+        audioUri = `file://${audioUri}`;
+      }
+
       const audioFile = {
-        uri: audioRecording.uri,
+        uri: audioUri,
         type: "audio/m4a",
         name: `audio_${uploadTimestamp}.m4a`,
       };
@@ -90,7 +99,6 @@ export const uploadAttendanceData = async ({
         form.append("audioDuration", audioRecording.duration.toString());
       }
     }
-    console.log("form data", form);
 
     const authHeaders = useAuthStore.getState().getAuthHeaders();
 
@@ -101,8 +109,6 @@ export const uploadAttendanceData = async ({
       },
       timeout: 30000,
     });
-
-    console.log("attendance data", data);
 
     return { success: true, id: data.id, data: data.data };
   } catch (e: any) {
