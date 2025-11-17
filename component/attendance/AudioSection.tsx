@@ -16,6 +16,7 @@ import { AudioPlayer } from "../audio/AudioPlayer";
 interface AudioSectionProps {
   audioRecording: AudioRecording | null;
   onRecordAudio: () => void;
+  onDeleteAudio: () => void;
 }
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -23,6 +24,7 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 export function AudioSection({
   audioRecording,
   onRecordAudio,
+  onDeleteAudio,
 }: AudioSectionProps) {
   const pulseScale = useSharedValue(1);
   const buttonScale = useSharedValue(1);
@@ -68,7 +70,10 @@ export function AudioSection({
             <Text style={audioSectionStyles.brutalistCardAlert}>Audio Recorded</Text>
           </View>
           <View style={audioSectionStyles.brutalistCardMessage}>
-            <AudioPlayer audioRecording={audioRecording} />
+            <AudioPlayer
+              audioRecording={audioRecording}
+              onDelete={onDeleteAudio}
+            />
           </View>
         </View>
       ) : (
@@ -95,4 +100,3 @@ export function AudioSection({
     </View>
   );
 }
-

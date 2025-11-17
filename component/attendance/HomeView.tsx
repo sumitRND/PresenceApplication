@@ -31,6 +31,7 @@ interface HomeViewProps {
   onRetakePhoto: (index: number) => void;
   onRetakeAll: () => void;
   onRecordAudio: () => void;
+  onDeleteAudio: () => void;
   onUpload: () => void;
   uploading: boolean;
   totalPhotos: number;
@@ -433,6 +434,7 @@ export function HomeView({
   onRetakePhoto,
   onRetakeAll,
   onRecordAudio,
+  onDeleteAudio,
   onUpload,
   uploading,
   totalPhotos,
@@ -745,6 +747,7 @@ export function HomeView({
         <AudioSection
           audioRecording={audioRecording}
           onRecordAudio={onRecordAudio}
+          onDeleteAudio={onDeleteAudio}
         />
       </Animated.View>
 
@@ -773,4 +776,3 @@ function getTimeOfDay() {
   if (hour < 17) return "AFTERNOON";
   return "EVENING";
 }
-

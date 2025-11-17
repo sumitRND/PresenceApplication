@@ -10,7 +10,13 @@ import {
 import { useAttendanceStore } from "@/store/attendanceStore";
 import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
 import { useFocusEffect } from "@react-navigation/native";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -50,7 +56,7 @@ export const AttendanceCalendar: React.FC<AttendanceCalendarProps> = ({
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [markedDates, setMarkedDates] = useState<any>({});
   const [holidays, setHolidays] = useState<Holiday[]>([]);
-  const [isChangingMonth, setIsChangingMonth] = useState(false);
+  const isChangingMonth = useRef(false);
   const attendanceRecords = useAttendanceStore(
     (state) => state.attendanceRecords,
   );
@@ -58,22 +64,6 @@ export const AttendanceCalendar: React.FC<AttendanceCalendarProps> = ({
     (state) => state.todayAttendanceMarked,
   );
   const { fieldTripDates } = useAttendanceStore();
-
-  useEffect(() => {
-    const loadHolidays = async () => {
-      try {
-        const cachedHolidays = await getCachedHolidays(
-          selectedYear,
-          selectedMonth,
-        );
-        setHolidays(cachedHolidays);
-      } catch (error: any) {
-        console.error("Error loading holidays:", error);
-        setHolidays([]);
-      }
-    };
-    loadHolidays();
-  }, [selectedYear, selectedMonth]);
 
   const isWorkingDay = (dateStr: string, holidays: Holiday[]): boolean => {
     const date = new Date(dateStr);
@@ -87,7 +77,7 @@ const fetchAttendanceData = useCallback(
   async (showLoading = true) => {
     console.log('🚀 fetchAttendanceData called', {
       showLoading,
-      isChangingMonth,
+      isChangingMonth: isChangingMonth.current,
       employeeCode,
       selectedYear,
       selectedMonth,
@@ -95,7 +85,7 @@ const fetchAttendanceData = useCallback(
     });
     
     try {
-      if (showLoading && !isChangingMonth) {
+      if (showLoading && !isChangingMonth.current) {
         console.log('⏳ Setting loading to true');
         setLoading(true);
       }
@@ -214,7 +204,7 @@ const fetchAttendanceData = useCallback(
           hasData: !!response.data
         });
         
-        if (!isChangingMonth) {
+        if (!isChangingMonth.current) {
           const errorMessage = response.error || "Failed to load attendance data";
           console.log('🔔 Showing error alert:', errorMessage);
           Alert.alert("Error", errorMessage);
@@ -226,36 +216,53 @@ const fetchAttendanceData = useCallback(
       console.error('Error message:', error?.message);
       console.error('Error stack:', error?.stack);
       
-      if (!isChangingMonth) {
+      if (!isChangingMonth.current) {
         console.log('🔔 Showing generic error alert');
         Alert.alert("Error", "Failed to load attendance data");
       }
     } finally {
       console.log('🏁 Finally block executing', {
         showLoading,
-        isChangingMonth,
-        willSetLoadingFalse: showLoading && !isChangingMonth
+        isChangingMonth: isChangingMonth.current,
+        willSetLoadingFalse: showLoading && !isChangingMonth.current,
       });
       
-      if (showLoading && !isChangingMonth) {
+      if (showLoading && !isChangingMonth.current) {
         console.log('⏸️ Setting loading to false');
         setLoading(false);
       }
       
-      setIsChangingMonth(false);
+      isChangingMonth.current = false;
       console.log('✅ fetchAttendanceData cleanup complete');
     }
   },
-  [employeeCode, selectedYear, selectedMonth, holidays, isChangingMonth],
+  [employeeCode, selectedYear, selectedMonth],
 );
 
   useEffect(() => {
-    if (holidays.length > 0) {
-      fetchAttendanceData();
-    }
-  }, [fetchAttendanceData, holidays]);
+    const loadData = async () => {
+      if (!isChangingMonth.current) {
+        setLoading(true);
+      }
+      try {
+        const holidayData = await getCachedHolidays(selectedYear, selectedMonth);
+        setHolidays(holidayData);
+        await fetchAttendanceData(false); // Pass false to avoid double loading
+      } catch (error) {
+        console.error("Error loading data:", error);
+        Alert.alert("Error", "Failed to load holiday or attendance data.");
+      } finally {
+        if (!isChangingMonth.current) {
+          setLoading(false);
+        }
+        isChangingMonth.current = false;
+      }
+    };
 
-useEffect(() => {
+    loadData();
+  }, [selectedYear, selectedMonth, fetchAttendanceData]);
+
+  useEffect(() => {
   const today = new Date().toISOString().split("T")[0];
   const currentMonth = new Date().getMonth() + 1;
   const currentYear = new Date().getFullYear();
@@ -306,7 +313,7 @@ useFocusEffect(
   }, []);
 
   const onMonthChange = useCallback((month: any) => {
-    setIsChangingMonth(true);
+    isChangingMonth.current = true;
     setSelectedMonth(month.month);
     setSelectedYear(month.year);
   }, []);

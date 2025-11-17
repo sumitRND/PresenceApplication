@@ -9,6 +9,7 @@ export interface AuthResponse {
   empClass?: string;
   projects?: { projectCode: string; department: string }[];
   token?: string;
+  refreshToken?: string; // Add this line
   error?: string;
   message?: string;
 }

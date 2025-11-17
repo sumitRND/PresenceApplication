@@ -8,9 +8,13 @@ import { AudioControls } from "./AudioControl";
 
 interface AudioPlayerProps {
   audioRecording: AudioRecording;
+  onDelete: () => void;
 }
 
-export function AudioPlayer({ audioRecording }: AudioPlayerProps) {
+export function AudioPlayer({
+  audioRecording,
+  onDelete,
+}: AudioPlayerProps) {
   const audio = useAudio();
 
   const handlePlay = () => {
@@ -19,6 +23,7 @@ export function AudioPlayer({ audioRecording }: AudioPlayerProps) {
 
   const handleDelete = async () => {
     await audio.deleteRecording();
+    onDelete();
   };
 
   return (

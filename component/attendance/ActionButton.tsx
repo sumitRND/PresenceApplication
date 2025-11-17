@@ -1,9 +1,9 @@
-import { colors } from "@/constants/colors";
+import { brutalistColors, colors } from "@/constants/colors";
 import { actionButtonStyles } from "@/constants/style";
 import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
 import { CameraCapturedPicture } from "expo-camera";
 import React from "react";
-import { Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -49,6 +49,19 @@ export function ActionButtons({
 
   const isComplete = photos.length === totalPhotos && audioRecording !== null;
   const isButtonDisabled = !isComplete || uploading || !canSubmit;
+
+  if (!canSubmit && isComplete) {
+    return (
+      <View style={actionButtonStyles.container}>
+        <View style={actionButtonStyles.loadingContainer}>
+          <ActivityIndicator size="small" color={brutalistColors.black} />
+          <Text style={actionButtonStyles.loadingText}>
+            Verifying location...
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={actionButtonStyles.container}>

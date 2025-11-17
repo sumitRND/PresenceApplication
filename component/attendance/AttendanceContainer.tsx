@@ -340,6 +340,7 @@ const handleUpload = async () => {
                   setCurrentView("camera");
                 }}
                 onRecordAudio={() => setCurrentView("audioRecorder")}
+                onDeleteAudio={() => setAudioRecording(null)}
                 onUpload={handleUpload}
                 uploading={uploading}
                 totalPhotos={TOTAL_PHOTOS}

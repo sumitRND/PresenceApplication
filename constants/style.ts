@@ -103,6 +103,7 @@ export const audioStyles = StyleSheet.create({
     lineHeight: 1.4,
     fontWeight: "900",
     textTransform: "uppercase",
+    flexShrink: 1,
   },
   controls: {
     flexDirection: "row",
@@ -739,6 +740,23 @@ export const actionButtonStyles = StyleSheet.create({
   buttonDisabled: {
     opacity: 0.6,
   },
+  loadingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+    backgroundColor: brutalistColors.lightGray,
+    borderWidth: 4,
+    borderColor: brutalistColors.black,
+  },
+  loadingText: {
+    color: brutalistColors.black,
+    fontSize: 16,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
 });
 
 export const audioSectionStyles = StyleSheet.create({
@@ -774,8 +792,9 @@ export const audioSectionStyles = StyleSheet.create({
   brutalistCardAlert: {
     fontWeight: "900",
     color: "#000",
-    fontSize: 24, // 1.5rem equivalent
+    fontSize: 20, // 1.5rem equivalent
     textTransform: "uppercase",
+    flex: 1,
   },
   brutalistCardMessage: {
     marginTop: 16,
