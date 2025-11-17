@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { loginUser } from "../services/authService";
 import { clearUserData, getUserData, storeUserData } from "../services/UserId";
+import axios from "axios"; // Make sure to import axios
 
 interface AuthState {
   session: string | null;
@@ -13,6 +14,8 @@ interface AuthState {
   projects: { projectCode: string; department: string }[];
   token: string | null;
   tokenExpiry: number | null;
+  refreshToken: string | null; // Added refreshToken
+  isRefreshing: boolean; // Added isRefreshing
   isLoading: boolean;
   isInitialized: boolean;
   autoLogoutTimer: ReturnType<typeof setTimeout> | null;
@@ -25,6 +28,8 @@ interface AuthState {
   refreshTokenTimer: () => void;
   clearAutoLogoutTimer: () => void;
   getAuthHeaders: () => { Authorization?: string };
+  refreshAuthToken: () => Promise<boolean>; // Added refreshAuthToken
+  scheduleTokenRefresh: () => void; // Added scheduleTokenRefresh
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -37,6 +42,8 @@ export const useAuthStore = create<AuthState>()(
       projects: [],
       token: null,
       tokenExpiry: null,
+      refreshToken: null,
+      isRefreshing: false,
       isLoading: true,
       isInitialized: false,
       autoLogoutTimer: null,
@@ -49,33 +56,35 @@ export const useAuthStore = create<AuthState>()(
           if (state.token && state.tokenExpiry) {
             const isExpired = Date.now() >= state.tokenExpiry;
             if (isExpired) {
-              await get().signOut();
-              Alert.alert(
-                "Session Expired",
-                "Your session has expired. Please login again.",
-              );
-              set({ isLoading: false, isInitialized: true });
-              return;
+              // Attempt to refresh the token before signing out
+              const refreshed = await get().refreshAuthToken();
+              if (!refreshed) {
+                await get().signOut();
+                Alert.alert(
+                  "Session Expired",
+                  "Your session has expired. Please login again.",
+                );
+              }
+            } else {
+              get().scheduleTokenRefresh(); // Schedule refresh for existing valid token
             }
           }
 
-          if (userData?.isLoggedIn && state.token) {
+          if (userData?.isLoggedIn && get().token) {
+            // check token again after potential refresh
             set({
               session: userData.employeeNumber,
               userName: userData.name,
               employeeNumber: userData.employeeNumber,
-              isLoading: false,
-              isInitialized: true,
             });
 
-            // Use dynamic import to break circular dependency
             const { useAttendanceStore } = await import("./attendanceStore");
             useAttendanceStore.getState().setUserId(userData.name);
-            get().refreshTokenTimer();
-          } else {
-            set({ isLoading: false, isInitialized: true });
           }
-        } catch {
+        } catch (e) {
+          console.error("Initialization failed", e);
+          await get().signOut();
+        } finally {
           set({ isLoading: false, isInitialized: true });
         }
       },
@@ -86,37 +95,9 @@ export const useAuthStore = create<AuthState>()(
         return Date.now() < state.tokenExpiry;
       },
 
+      // This function can be deprecated or repurposed if session expiry alerts are no longer needed
       refreshTokenTimer: () => {
-        const state = get();
-
-        state.clearAutoLogoutTimer();
-
-        if (state.tokenExpiry) {
-          const timeUntilExpiry = state.tokenExpiry - Date.now();
-
-          if (timeUntilExpiry > 0) {
-            const timer = setTimeout(async () => {
-              await get().signOut();
-              Alert.alert(
-                "Session Expired",
-                "Your session has expired. Please login again.",
-                [{ text: "OK" }],
-              );
-            }, timeUntilExpiry);
-
-            set({ autoLogoutTimer: timer });
-
-            if (timeUntilExpiry > 120000) {
-              setTimeout(() => {
-                Alert.alert(
-                  "Session Expiring",
-                  "Your session will expire in 2 minutes.",
-                  [{ text: "OK" }],
-                );
-              }, timeUntilExpiry - 120000);
-            }
-          }
-        }
+        get().scheduleTokenRefresh();
       },
 
       clearAutoLogoutTimer: () => {
@@ -140,7 +121,8 @@ export const useAuthStore = create<AuthState>()(
         try {
           const res = await loginUser(username, password);
 
-          if (res.success && res.token) {
+          if (res.success && res.token && res.refreshToken) {
+            // Assuming login response includes refreshToken
             const tokenExpiry = Date.now() + 30 * 60 * 1000;
 
             await storeUserData({
@@ -156,11 +138,11 @@ export const useAuthStore = create<AuthState>()(
               empClass: res.empClass,
               projects: res.projects || [],
               token: res.token,
+              refreshToken: res.refreshToken,
               tokenExpiry,
               isLoading: false,
             });
 
-            // Use dynamic import to break circular dependency
             const { useAttendanceStore } = await import("./attendanceStore");
             useAttendanceStore.getState().setUserId(res.username!);
 
@@ -169,15 +151,16 @@ export const useAuthStore = create<AuthState>()(
               useAttendanceStore.getState().setDepartment(department);
             }
 
-            get().refreshTokenTimer();
+            get().scheduleTokenRefresh();
             Alert.alert("Success", "Logged in successfully!");
           } else {
             set({ isLoading: false });
             Alert.alert("Login Failed", res.error || "Unknown error");
           }
-        } catch {
+        } catch (err) {
+          console.error("Login error", err);
           set({ isLoading: false });
-          Alert.alert("Error", "Unexpected error during login");
+          Alert.alert("Error", "An unexpected error occurred during login.");
         }
       },
 
@@ -185,6 +168,7 @@ export const useAuthStore = create<AuthState>()(
         try {
           get().clearAutoLogoutTimer();
           await clearUserData();
+          // Reset all auth-related state
           set({
             session: null,
             userName: null,
@@ -192,23 +176,81 @@ export const useAuthStore = create<AuthState>()(
             empClass: null,
             projects: [],
             token: null,
+            refreshToken: null,
             tokenExpiry: null,
             autoLogoutTimer: null,
+            isRefreshing: false,
           });
 
-          // Use dynamic import to break circular dependency
           const { useAttendanceStore } = await import("./attendanceStore");
           useAttendanceStore.getState().clearUserId();
         } catch (e) {
-          console.error(e);
+          console.error("Sign out failed", e);
         }
       },
 
       setLoading: (loading) => set({ isLoading: loading }),
+
+      // New function to refresh the authentication token
+      refreshAuthToken: async () => {
+        const state = get();
+        if (!state.refreshToken || state.isRefreshing) return false;
+
+        set({ isRefreshing: true });
+        try {
+          // Replace with your actual API endpoint for refreshing tokens
+          const response = await axios.post("YOUR_API_BASE_URL/auth/refresh", {
+            refreshToken: state.refreshToken,
+          });
+
+          if (response.data.success && response.data.token) {
+            const newExpiry = Date.now() + 30 * 60 * 1000; // 30 minutes expiry
+            set({
+              token: response.data.token,
+              tokenExpiry: newExpiry,
+            });
+
+            get().scheduleTokenRefresh(); // Schedule the next refresh
+            return true;
+          }
+          // If refresh fails, sign out the user
+          await get().signOut();
+          return false;
+        } catch (error) {
+          console.error("Token refresh failed", error);
+          await get().signOut(); // Critical failure, sign out
+          return false;
+        } finally {
+          set({ isRefreshing: false });
+        }
+      },
+
+      // New function to schedule the token refresh
+      scheduleTokenRefresh: () => {
+        const state = get();
+        state.clearAutoLogoutTimer(); // Clear any existing timer
+
+        if (state.tokenExpiry) {
+          // Schedule refresh 2 minutes before the token expires
+          const refreshTime = state.tokenExpiry - Date.now() - 2 * 60 * 1000;
+
+          if (refreshTime > 0) {
+            const timer = setTimeout(() => {
+              get().refreshAuthToken();
+            }, refreshTime);
+
+            set({ autoLogoutTimer: timer });
+          } else {
+            // If the token is already within the 2-minute window or expired, refresh immediately
+            get().refreshAuthToken();
+          }
+        }
+      },
     }),
     {
       name: "auth-storage",
       storage: createJSONStorage(() => AsyncStorage),
+      // Persist the new refreshToken state
       partialize: (state) => ({
         session: state.session,
         userName: state.userName,
@@ -216,6 +258,7 @@ export const useAuthStore = create<AuthState>()(
         empClass: state.empClass,
         projects: state.projects,
         token: state.token,
+        refreshToken: state.refreshToken,
         tokenExpiry: state.tokenExpiry,
       }),
     },

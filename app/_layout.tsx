@@ -1,4 +1,3 @@
-// app/_layout.tsx - Updated with fixes
 import { TermsAndConditionsScreen } from "@/component/ui/TermsAndConditionsScreen";
 import { useAudio } from "@/hooks/useAudio";
 import { useCamera } from "@/hooks/useCamera";
@@ -26,17 +25,14 @@ import {
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useAuthStore } from "../store/authStore";
 
-// Global configuration for Text and TextInput
-// This helps maintain consistency across the app
 (Text as any).defaultProps = (Text as any).defaultProps || {};
-(Text as any).defaultProps.allowFontScaling = true; // Allow font scaling
-(Text as any).defaultProps.maxFontSizeMultiplier = 1.3; // Limit maximum scaling to 130%
+(Text as any).defaultProps.allowFontScaling = true;
+(Text as any).defaultProps.maxFontSizeMultiplier = 1.3;
 
 (TextInput as any).defaultProps = (TextInput as any).defaultProps || {};
 (TextInput as any).defaultProps.allowFontScaling = true;
 (TextInput as any).defaultProps.maxFontSizeMultiplier = 1.3;
 
-// Set default touch opacity for better touch feedback
 (TouchableOpacity as any).defaultProps =
   (TouchableOpacity as any).defaultProps || {};
 (TouchableOpacity as any).defaultProps.activeOpacity = 0.7;
@@ -48,6 +44,9 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     isInitialized,
     initializeAuth,
     checkTokenExpiry,
+    tokenExpiry,
+    refreshAuthToken,
+    signOut,
   } = useAuthStore();
   const segments = useSegments();
   const navigationState = useRootNavigationState();
@@ -56,17 +55,17 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     if (!isInitialized) initializeAuth();
   }, [isInitialized, initializeAuth]);
 
-  // Check token expiry on app state change (when app comes to foreground)
+  // Simplified approach for handling app state changes
   useEffect(() => {
     const handleAppStateChange = (nextAppState: string) => {
-      if (nextAppState === "active") {
-        // Check if token is still valid when app becomes active
-        if (session && !checkTokenExpiry()) {
-          Alert.alert(
-            "Session Expired",
-            "Your session has expired. Please login again.",
-            [{ text: "OK", onPress: () => useAuthStore.getState().signOut() }],
-          );
+      if (nextAppState === "active" && session) {
+        // Check and refresh if needed when app becomes active
+        const timeUntilExpiry = (tokenExpiry || 0) - Date.now();
+
+        // If token is expiring in less than 5 minutes, or already expired
+        if (timeUntilExpiry < 5 * 60 * 1000) {
+          // If token is still valid, refresh it. Otherwise, sign out.
+          checkTokenExpiry() ? refreshAuthToken() : signOut();
         }
       }
     };
@@ -76,25 +75,9 @@ function AuthGate({ children }: { children: React.ReactNode }) {
       handleAppStateChange,
     );
     return () => subscription.remove();
-  }, [session, checkTokenExpiry]);
+  }, [session, tokenExpiry, checkTokenExpiry, refreshAuthToken, signOut]);
 
-  // Check token expiry periodically (every minute)
-  useEffect(() => {
-    if (!session) return;
-
-    const interval = setInterval(() => {
-      if (!checkTokenExpiry()) {
-        Alert.alert(
-          "Session Expired",
-          "Your session has expired. Please login again.",
-          [{ text: "OK", onPress: () => useAuthStore.getState().signOut() }],
-        );
-      }
-    }, 60000); // Check every minute
-
-    return () => clearInterval(interval);
-  }, [session, checkTokenExpiry]);
-
+  // This effect handles navigation based on auth state
   useEffect(() => {
     if (!navigationState?.key || isLoading || !isInitialized) return;
 
@@ -121,7 +104,6 @@ function TermsGate({ children }: { children: React.ReactNode }) {
   const { requestPermission: requestMic } = useAudio();
   const { requestPermission: requestLocation } = useLocation();
 
-  // Check if terms have been accepted (only once after install)
   useEffect(() => {
     const checkTermsAcceptance = async () => {
       try {
@@ -136,63 +118,54 @@ function TermsGate({ children }: { children: React.ReactNode }) {
     checkTermsAcceptance();
   }, []);
 
-// In app/_layout.tsx, update the handleAccept function:
-
-const handleAccept = async () => {
-  setProcessing(true);
-  try {
-    // For Android, ensure location services are enabled first
-    if (Platform.OS === 'android') {
-      const locationServicesEnabled = await Location.hasServicesEnabledAsync();
-      if (!locationServicesEnabled) {
-        Alert.alert(
-          "Enable Location Services",
-          "Please enable location services on your device before continuing.",
-          [
-            {
-              text: "Open Settings",
-              onPress: async () => {
-                await IntentLauncher.startActivityAsync(
-                  IntentLauncher.ActivityAction.LOCATION_SOURCE_SETTINGS
-                );
-                // Don't continue with setup
-                setProcessing(false);
-                return;
-              }
-            },
-            {
-              text: "Cancel",
-              style: "cancel",
-              onPress: () => {
-                setProcessing(false);
-              }
-            }
-          ]
-        );
-        return;
+  const handleAccept = async () => {
+    setProcessing(true);
+    try {
+      if (Platform.OS === "android") {
+        const locationServicesEnabled =
+          await Location.hasServicesEnabledAsync();
+        if (!locationServicesEnabled) {
+          Alert.alert(
+            "Enable Location Services",
+            "Please enable location services on your device before continuing.",
+            [
+              {
+                text: "Open Settings",
+                onPress: async () => {
+                  await IntentLauncher.startActivityAsync(
+                    IntentLauncher.ActivityAction.LOCATION_SOURCE_SETTINGS,
+                  );
+                  setProcessing(false);
+                },
+              },
+              {
+                text: "Cancel",
+                style: "cancel",
+                onPress: () => {
+                  setProcessing(false);
+                },
+              },
+            ],
+          );
+          return;
+        }
       }
+
+      await Promise.all([requestCamera(), requestMic(), requestLocation()]);
+      await AsyncStorage.setItem("termsAcceptedOnce", "true");
+      setHasAcceptedTerms(true);
+    } catch (error) {
+      console.error("Error accepting terms:", error);
+      Alert.alert("Error", "Failed to setup permissions. Please try again.");
+    } finally {
+      setProcessing(false);
     }
+  };
 
-    // Request all required permissions
-    await Promise.all([requestCamera(), requestMic(), requestLocation()]);
-
-    // Mark terms as accepted permanently
-    await AsyncStorage.setItem("termsAcceptedOnce", "true");
-    setHasAcceptedTerms(true);
-  } catch (error) {
-    console.error("Error accepting terms:", error);
-    Alert.alert("Error", "Failed to setup permissions. Please try again.");
-  } finally {
-    setProcessing(false);
-  }
-};
-
-  // Loading state
   if (hasAcceptedTerms === null) {
     return null; // Or a loading screen
   }
 
-  // Show terms only if not accepted AND user is logged in
   if (!hasAcceptedTerms && session) {
     return (
       <TermsAndConditionsScreen
@@ -207,14 +180,12 @@ const handleAccept = async () => {
 
 export default function RootLayout() {
   return (
-    // GestureHandlerRootView is essential for proper touch handling
     <GestureHandlerRootView style={{ flex: 1 }}>
       <AuthGate>
         <TermsGate>
           <NotificationProvider>
             <Stack
               screenOptions={{
-                // Ensure animations don't interfere with touch events
                 animation: "simple_push",
                 animationDuration: 200,
               }}

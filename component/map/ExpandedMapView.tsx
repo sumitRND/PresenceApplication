@@ -1,14 +1,8 @@
 import { expandedMapStyles } from "@/constants/style";
 import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
 import React from "react";
-import {
-  Pressable,
-  StatusBar,
-  StyleSheet,
-  View,
-  Platform,
-  SafeAreaView,
-} from "react-native";
+import { Pressable, StatusBar, StyleSheet, View, Platform } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 interface ExpandedMapViewProps {
   onClose: () => void;

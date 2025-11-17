@@ -4,15 +4,9 @@ import {
   CameraView as ExpoCameraView,
 } from "expo-camera";
 import { Image } from "expo-image";
-import { FlipType, manipulateAsync, SaveFormat } from "expo-image-manipulator";
+import { FlipType, ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import React, { useState } from "react";
-import {
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View
-} from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -58,10 +52,8 @@ export function CameraView({
       const photo = await camera.takePicture();
       if (photo) {
         let processedPhoto = photo;
-
-        // Fix mirroring issue for iOS front-facing camera
-        if (Platform.OS === "ios" && camera.facing === "front") {
-          const manipulatedImage = await manipulateAsync(
+        if (camera.facing === "front") {
+          const manipulatedImage = await ImageManipulator.manipulateAsync(
             photo.uri,
             [{ flip: FlipType.Horizontal }],
             { compress: 0.9, format: SaveFormat.JPEG },
@@ -95,8 +87,6 @@ export function CameraView({
     setCapturedPhoto(null);
     setShowPreview(false);
   };
-
-  // If showing preview, render the preview screen
   if (showPreview && capturedPhoto) {
     return (
       <View style={cameraViewStyles.previewContainer}>
@@ -118,11 +108,7 @@ export function CameraView({
 
           {/* Position Badge */}
           <View style={cameraViewStyles.positionBadge}>
-            <FontAwesome6
-              name="user"
-              size={16}
-              color={colors.black}
-            />
+            <FontAwesome6 name="user" size={16} color={colors.black} />
             <Text style={cameraViewStyles.positionBadgeText}>FRONT FACE</Text>
           </View>
 
@@ -149,14 +135,22 @@ export function CameraView({
 
         {/* Action Buttons */}
         <View style={cameraViewStyles.previewActions}>
-          <Pressable style={cameraViewStyles.retakeButton} onPress={handleRetake}>
+          <Pressable
+            style={cameraViewStyles.retakeButton}
+            onPress={handleRetake}
+          >
             <FontAwesome6 name="camera-rotate" size={20} color={colors.black} />
             <Text style={cameraViewStyles.retakeButtonText}>RETAKE</Text>
           </Pressable>
 
-          <Pressable style={cameraViewStyles.usePhotoButton} onPress={handleKeep}>
+          <Pressable
+            style={cameraViewStyles.usePhotoButton}
+            onPress={handleKeep}
+          >
             <FontAwesome6 name="check" size={20} color={colors.black} />
-            <Text style={cameraViewStyles.usePhotoButtonText}>USE THIS PHOTO</Text>
+            <Text style={cameraViewStyles.usePhotoButtonText}>
+              USE THIS PHOTO
+            </Text>
           </Pressable>
         </View>
       </View>
@@ -184,7 +178,6 @@ export function CameraView({
 
       {/* Controls & Overlays */}
       <View style={cameraViewStyles.overlayContainer}>
-
         {/* Top Controls */}
         <View style={cameraViewStyles.topControls}>
           <Pressable onPress={onBack} style={cameraViewStyles.backButton}>
@@ -193,9 +186,7 @@ export function CameraView({
 
           <View style={cameraViewStyles.counterOverlay}>
             <Text style={cameraViewStyles.counterText}>
-              {retakeMode
-                ? `Retaking Photo`
-                : `Front Face`}
+              {retakeMode ? `Retaking Photo` : `Front Face`}
             </Text>
           </View>
 
@@ -206,9 +197,15 @@ export function CameraView({
         <View style={cameraViewStyles.faceGuideContainer}>
           <View style={cameraViewStyles.faceGuide}>
             <View style={[cameraViewStyles.corner, cameraViewStyles.topLeft]} />
-            <View style={[cameraViewStyles.corner, cameraViewStyles.topRight]} />
-            <View style={[cameraViewStyles.corner, cameraViewStyles.bottomLeft]} />
-            <View style={[cameraViewStyles.corner, cameraViewStyles.bottomRight]} />
+            <View
+              style={[cameraViewStyles.corner, cameraViewStyles.topRight]}
+            />
+            <View
+              style={[cameraViewStyles.corner, cameraViewStyles.bottomLeft]}
+            />
+            <View
+              style={[cameraViewStyles.corner, cameraViewStyles.bottomRight]}
+            />
 
             <View style={cameraViewStyles.positionIndicator}>
               <FontAwesome6
