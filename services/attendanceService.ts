@@ -1,15 +1,12 @@
-import { useAuthStore } from "@/store/authStore";
-import { AttendanceProps } from "@/types/geofence";
-import axios from "axios";
-import { Platform } from "react-native"; // Added this import
-
-const API_BASE = process.env.EXPO_PUBLIC_API_BASE;
+import { AttendanceProps } from '@/types/geofence';
+import { Platform } from 'react-native';
+import { apiHelpers } from './api';
 
 export interface CheckoutResponse {
   success: boolean;
   data?: {
     checkOutTime: string;
-    attendanceType: "FULL_DAY" | "HALF_DAY";
+    attendanceType: 'FULL_DAY' | 'HALF_DAY';
     message: string;
   };
   error?: string;
@@ -21,8 +18,8 @@ export interface TodayAttendanceResponse {
     attendanceKey: string;
     checkInTime: string;
     checkOutTime?: string;
-    sessionType: "FORENOON" | "AFTERNOON";
-    attendanceType?: "FULL_DAY" | "HALF_DAY";
+    sessionType: 'FORENOON' | 'AFTERNOON';
+    attendanceType?: 'FULL_DAY' | 'HALF_DAY';
     isCheckedOut: boolean;
     takenLocation?: string;
     latitude?: number;
@@ -36,170 +33,213 @@ export interface TodayAttendanceResponse {
 interface AttendancePropsWithCoordinates extends AttendanceProps {
   latitude?: number;
   longitude?: number;
+  username?: string;
 }
 
-export const uploadAttendanceData = async ({
-  employeeNumber,
-  photos,
-  audioRecording,
-  location,
-  latitude,
-  longitude,
-}: AttendancePropsWithCoordinates) => {
-  try {
-    if (!employeeNumber) {
-      return { success: false, error: "User not logged in" };
+class AttendanceService {
+  private static instance: AttendanceService;
+  private attendanceCache: Map<string, { data: any; timestamp: number }> = new Map();
+  private readonly CACHE_DURATION = 60000;
+
+  static getInstance(): AttendanceService {
+    if (!this.instance) {
+      this.instance = new AttendanceService();
     }
+    return this.instance;
+  }
 
-    const form = new FormData();
-    const uploadTimestamp = Date.now();
-    form.append("locationType", "CAMPUS");
-
-    form.append("username", useAuthStore.getState().userName || "");
-    form.append("employeeNumber", employeeNumber.toString());
-    form.append("timestamp", uploadTimestamp.toString());
-
-    if (location && location.trim()) {
-      form.append("location", location);
-    }
-
-    if (latitude !== undefined && latitude !== null) {
-      form.append("latitude", latitude.toString());
-    }
-    if (longitude !== undefined && longitude !== null) {
-      form.append("longitude", longitude.toString());
-    }
-
-    if (photos.length > 0 && photos[0]?.uri) {
-      const photoFile = {
-        uri: photos[0].uri,
-        type: "image/jpeg",
-        name: `photo_${uploadTimestamp}.jpg`,
-      };
-      form.append("photo", photoFile as any);
-    }
-
-    if (audioRecording?.uri) {
-      // FIX: Ensure proper file URI format for Android
-      let audioUri = audioRecording.uri;
-
-      // Add file:// prefix if not present and path starts with /
-      if (Platform.OS === 'android' && audioUri.startsWith('/')) {
-        audioUri = `file://${audioUri}`;
+  async uploadAttendance({
+    employeeNumber,
+    photos,
+    audioRecording,
+    location,
+    latitude,
+    longitude,
+    username,
+  }: AttendancePropsWithCoordinates) {
+    try {
+      if (!employeeNumber) {
+        return { success: false, error: 'User not logged in' };
       }
 
-      const audioFile = {
-        uri: audioUri,
-        type: "audio/m4a",
-        name: `audio_${uploadTimestamp}.m4a`,
-      };
-      form.append("audio", audioFile as any);
+      const formData = new FormData();
+      const uploadTimestamp = Date.now();
 
-      if (audioRecording.duration) {
-        form.append("audioDuration", audioRecording.duration.toString());
+      formData.append('employeeNumber', employeeNumber.toString());
+      formData.append('locationType', 'CAMPUS');
+      formData.append('timestamp', uploadTimestamp.toString());
+
+      if (username) {
+        formData.append('username', username);
       }
-    }
 
-    const authHeaders = useAuthStore.getState().getAuthHeaders();
+      if (location?.trim()) {
+        formData.append('location', location);
+      }
 
-    const { data } = await axios.post(`${API_BASE}/attendance`, form, {
-      headers: {
-        "Content-Type": "multipart/form-data",
-        ...authHeaders,
-      },
-      timeout: 30000,
-    });
+      if (latitude !== undefined && latitude !== null) {
+        formData.append('latitude', latitude.toString());
+      }
 
-    return { success: true, id: data.id, data: data.data };
-  } catch (e: any) {
-    console.error("Upload error:", e);
+      if (longitude !== undefined && longitude !== null) {
+        formData.append('longitude', longitude.toString());
+      }
 
-    if (e.response?.status === 403 || e.response?.status === 401) {
+      if (photos.length > 0 && photos[0]?.uri) {
+        const photoFile = {
+          uri: photos[0].uri,
+          type: 'image/jpeg',
+          name: `photo_${uploadTimestamp}.jpg`,
+        };
+        formData.append('photo', photoFile as any);
+      }
+
+      if (audioRecording?.uri) {
+        let audioUri = audioRecording.uri;
+
+        if (Platform.OS === 'android' && audioUri.startsWith('/')) {
+          audioUri = `file://${audioUri}`;
+        }
+
+        const audioFile = {
+          uri: audioUri,
+          type: 'audio/m4a',
+          name: `audio_${uploadTimestamp}.m4a`,
+        };
+        formData.append('audio', audioFile as any);
+
+        if (audioRecording.duration) {
+          formData.append('audioDuration', audioRecording.duration.toString());
+        }
+      }
+
+      const data = await apiHelpers.uploadFormData('/attendance', formData);
+      this.clearAttendanceCache(employeeNumber);
+
+      return { success: true, id: (data as any).id, data: (data as any).data };
+    } catch (error: any) {
+      console.error('Upload error:', error);
+
+      if (error.response?.status === 403 || error.response?.status === 401) {
+        return {
+          success: false,
+          error: 'Session expired. Please login again.',
+        };
+      }
+
       return {
         success: false,
-        error: "Session expired. Please login again.",
+        error: error.response?.data?.error || error.message || 'Upload failed',
       };
     }
-
-    return {
-      success: false,
-      error: e.response?.data?.error || e.message || "Upload failed",
-    };
   }
-};
 
-export const checkoutAttendance = async (
-  employeeNumber: string
-): Promise<CheckoutResponse> => {
-  try {
-    const authHeaders = useAuthStore.getState().getAuthHeaders();
-
-    const { data } = await axios.post(
-      `${API_BASE}/attendance/checkout`,
-      {
+  async checkoutAttendance(employeeNumber: string): Promise<CheckoutResponse> {
+    try {
+      const data = await apiHelpers.post<any>('/attendance/checkout', {
         employeeNumber,
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-          ...authHeaders,
-        },
-        timeout: 10000,
+      });
+
+      this.clearAttendanceCache(employeeNumber);
+
+      return {
+        success: true,
+        data: data.data,
+      };
+    } catch (error: any) {
+      console.error('Checkout error:', error);
+
+      if (error.response?.status === 403 || error.response?.status === 401) {
+        return {
+          success: false,
+          error: 'Session expired. Please login again.',
+        };
       }
-    );
 
-    return {
-      success: true,
-      data: data.data,
-    };
-  } catch (e: any) {
-    console.error("Checkout error:", e);
-
-    if (e.response?.status === 403 || e.response?.status === 401) {
       return {
         success: false,
-        error: "Session expired. Please login again.",
+        error: error.response?.data?.error || error.message || 'Checkout failed',
       };
     }
-
-    return {
-      success: false,
-      error: e.response?.data?.error || e.message || "Checkout failed",
-    };
   }
-};
 
-export const getTodayAttendance = async (
-  employeeNumber: string
-): Promise<TodayAttendanceResponse> => {
-  try {
-    const authHeaders = useAuthStore.getState().getAuthHeaders();
-
-    const { data } = await axios.get(
-      `${API_BASE}/attendance/today/${employeeNumber}`,
-      {
-        timeout: 10000,
-        headers: authHeaders,
+  async getTodayAttendance(
+    employeeNumber: string,
+    forceRefresh: boolean = false
+  ): Promise<TodayAttendanceResponse> {
+    try {
+      if (!forceRefresh) {
+        const cached = this.attendanceCache.get(employeeNumber);
+        if (cached && Date.now() - cached.timestamp < this.CACHE_DURATION) {
+          return {
+            success: true,
+            data: cached.data,
+          };
+        }
       }
-    );
 
-    return {
-      success: data.success,
-      data: data.data,
-    };
-  } catch (e: any) {
-    console.error("Get today attendance error:", e);
+      const response = await apiHelpers.get<any>(
+        `/attendance/today/${employeeNumber}`
+      );
 
-    if (e.response?.status === 403 || e.response?.status === 401) {
+      if (response.success && response.data) {
+        this.attendanceCache.set(employeeNumber, {
+          data: response.data,
+          timestamp: Date.now(),
+        });
+
+        return {
+          success: true,
+          data: response.data,
+        };
+      }
+
+      this.clearAttendanceCache(employeeNumber);
+
       return {
         success: false,
-        error: "Session expired. Please login again.",
+        error: 'No attendance found for today',
+      };
+    } catch (error: any) {
+      console.error('Get today attendance error:', error);
+
+      if (error.response?.status === 403 || error.response?.status === 401) {
+        return {
+          success: false,
+          error: 'Session expired. Please login again.',
+        };
+      }
+
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message || 'Failed to get attendance',
       };
     }
-
-    return {
-      success: false,
-      error: e.response?.data?.error || e.message || "Failed to get attendance",
-    };
   }
-};
+
+  private clearAttendanceCache(employeeNumber: string): void {
+    this.attendanceCache.delete(employeeNumber);
+  }
+
+  clearAllCache(): void {
+    this.attendanceCache.clear();
+  }
+
+  private cleanCache(): void {
+    const now = Date.now();
+    for (const [key, value] of this.attendanceCache.entries()) {
+      if (now - value.timestamp > this.CACHE_DURATION) {
+        this.attendanceCache.delete(key);
+      }
+    }
+  }
+}
+
+const attendanceService = AttendanceService.getInstance();
+
+export const uploadAttendanceData = attendanceService.uploadAttendance.bind(attendanceService);
+export const checkoutAttendance = attendanceService.checkoutAttendance.bind(attendanceService);
+export const getTodayAttendance = attendanceService.getTodayAttendance.bind(attendanceService);
+export const clearAttendanceCache = attendanceService.clearAllCache.bind(attendanceService);
+
+export default attendanceService;

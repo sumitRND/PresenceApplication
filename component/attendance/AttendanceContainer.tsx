@@ -1,18 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { Alert, AppState, FlatList, ListRenderItem } from "react-native";
 
-import { useCamera } from "@/hooks/useCamera";
-import { useGeofence } from "@/hooks/useGeofence";
-import { useAttendanceStore } from "@/store/attendanceStore";
-import { useAuthStore } from "@/store/authStore";
+import { useGeofence } from "../../hooks/useGeofence";
+import { usePermissions } from "../../hooks/usePermissions";
+import { validationService } from "../../services/attendanceValidationService";
+import {
+  getHolidays,
+  Holiday,
+} from "../../services/userServices";
+import { useAttendanceStore } from "../../store/attendanceStore";
+import { useAuthStore } from "../../store/authStore";
 
 import { attendanceContainerStyles, globalStyles } from "@/constants/style";
-
-import {
-  getCachedHolidays,
-  Holiday,
-} from "@/services/attendanceCalendarService";
-import { attendanceValidation } from "@/services/attendanceValidationService";
 import { AudioRecorder } from "../audio/AudioRecorder";
 import { CameraView } from "../camera/CameraView";
 import { ExpandedMapView } from "../map/ExpandedMapView";
@@ -26,8 +25,8 @@ type ListItem = { id: string; type: "map" | "attendance" };
 
 export function AttendanceContainer() {
   const {
-    userId,
-    isLoadingUserId,
+    employeeNumber,
+    isLoading,
     isInitialized,
     photos,
     audioRecording,
@@ -35,24 +34,22 @@ export function AttendanceContainer() {
     uploading,
     currentPhotoIndex,
     retakeMode,
-    TOTAL_PHOTOS,
-    initializeUserId,
     setPhotos,
     setAudioRecording,
     setCurrentView,
     setCurrentPhotoIndex,
     setRetakeMode,
     setUploading,
-    resetAll,
+    resetSession,
     todayAttendanceMarked,
-    checkTodayAttendance,
+    fetchTodayAttendance,
     userLocationType,
     isFieldTrip,
-    checkFieldTripStatus,
+    fetchLocationSettings,
   } = useAttendanceStore();
 
-  const { session, userName } = useAuthStore();
-  const camera = useCamera();
+  const { isAuthenticated, username } = useAuthStore();
+  const { cameraRef } = usePermissions();
 
   const [showExpandedMap, setShowExpandedMap] = useState(false);
   const [isMapTouched, setIsMapTouched] = useState(false);
@@ -83,7 +80,7 @@ export function AttendanceContainer() {
           return;
         }
 
-        const holidays = await getCachedHolidays(year, month);
+        const holidays = await getHolidays(year, month);
         const todayString = today.toISOString().split("T")[0];
         const todayHoliday = holidays.find((h) => h.date === todayString);
 
@@ -103,40 +100,39 @@ export function AttendanceContainer() {
       }
     };
 
-    if (session && userName) {
+    if (isAuthenticated && username) {
       checkHolidayStatus();
     }
-  }, [session, userName]);
+  }, [isAuthenticated, username]);
 
   useEffect(() => {
-    if (session && userName && !isInitialized) {
-      initializeUserId();
+    if (isAuthenticated && username && !isInitialized) {
+      // Assuming initializeWithUser is called on login
     }
-  }, [session, userName, isInitialized, initializeUserId]);
+  }, [isAuthenticated, username, isInitialized]);
 
   useEffect(() => {
-    checkFieldTripStatus();
-  }, [checkFieldTripStatus]);
+    fetchLocationSettings();
+  }, [fetchLocationSettings]);
 
   useEffect(() => {
-    checkTodayAttendance();
-  }, [checkTodayAttendance]);
+    fetchTodayAttendance();
+  }, [fetchTodayAttendance]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextAppState) => {
-      if (nextAppState === "active" && session && userName) {
-        checkFieldTripStatus();
+      if (nextAppState === "active" && isAuthenticated && username) {
+        fetchLocationSettings();
       }
     });
 
     return () => subscription?.remove();
-  }, [session, userName, checkFieldTripStatus]);
+  }, [isAuthenticated, username, fetchLocationSettings]);
 
 const handleUpload = async () => {
   const userCoordinates = await geofence.captureLocationForAttendance();
 
   if (!userCoordinates) {
-    // The error is already shown in captureLocationForAttendance, so just return
     return;
   }
 
@@ -150,11 +146,18 @@ const handleUpload = async () => {
     return;
   }
 
-  const finalLocation = attendanceValidation.getLocationStatus(
+  const validationResult = validationService.validateAttendance(
     { lat: userCoordinates.latitude, lng: userCoordinates.longitude },
     department || "",
-    userLocationType,
+    userLocationType
   );
+
+  if (!validationResult.isValid) {
+    Alert.alert("Error", validationResult.reason || "Validation failed");
+    return;
+  }
+
+  const finalLocation = validationResult.details.userLocation;
 
   const { employeeNumber } = useAuthStore.getState();
 
@@ -165,7 +168,9 @@ const handleUpload = async () => {
 
   setUploading(true);
   try {
-    const { uploadAttendanceData } = await import("@/services/attendanceService");
+    const { uploadAttendanceData } = await import(
+      "../../services/attendanceService"
+    );
     const result = await uploadAttendanceData({
       employeeNumber: employeeNumber,
       photos,
@@ -176,12 +181,12 @@ const handleUpload = async () => {
     });
 
     if (result.success) {
-      const { markAttendanceForToday } = useAttendanceStore.getState();
-      markAttendanceForToday(finalLocation);
-      await useAttendanceStore.getState().fetchTodayAttendanceFromServer();
+      const { markAttendance, fetchTodayAttendance } = useAttendanceStore.getState();
+      await markAttendance(finalLocation, userCoordinates?.latitude, userCoordinates?.longitude);
+      await fetchTodayAttendance();
 
       Alert.alert("Success", "Attendance recorded!", [
-        { text: "OK", onPress: resetAll },
+        { text: "OK", onPress: resetSession },
       ]);
     } else {
       if (result.error === "Session expired. Please login again.") {
@@ -210,27 +215,6 @@ const handleUpload = async () => {
 };
 
 
-  // Add a helper function to show location status
-  // const getLocationStatusMessage = () => {
-  //   if (!geofence.userPos || !useAttendanceStore.getState().department) {
-  //     return null;
-  //   }
-
-  //   const { department, userLocationType } = useAttendanceStore.getState();
-  //   const status = attendanceValidation.getLocationStatus(
-  //     geofence.userPos,
-  //     department || "",
-  //     userLocationType
-  //   );
-
-  //   const timeCheck = attendanceValidation.isWithinWorkingHours();
-
-  //   return {
-  //     location: status,
-  //     timeStatus: timeCheck.timeInfo,
-  //     canMarkAttendance: timeCheck.isValid,
-  //   };
-  // };
 
   const mapComponent = React.useMemo(
     () => (
@@ -248,9 +232,9 @@ const handleUpload = async () => {
     [geofence]
   );
 
-  if (isLoadingUserId || checkingHoliday)
+  if (isLoading || checkingHoliday)
     return <LoadingScreen text="Loading..." />;
-  if (isInitialized && !userId)
+  if (isInitialized && !employeeNumber)
     return (
       <LoadingScreen text="Please login to continue" subtext="Redirecting..." />
     );
@@ -283,10 +267,9 @@ const handleUpload = async () => {
     case "camera":
       return (
         <CameraView
-          camera={camera}
           currentPhotoIndex={currentPhotoIndex}
           retakeMode={retakeMode}
-          totalPhotos={TOTAL_PHOTOS}
+          totalPhotos={photos.length}
           onPhotoTaken={(photo) => {
             const next = [...photos];
             next[currentPhotoIndex] = photo;
@@ -323,9 +306,6 @@ const handleUpload = async () => {
                 photos={photos}
                 audioRecording={audioRecording}
                 onTakePhotos={() => {
-                  const { generateNewPhotoPosition } =
-                    useAttendanceStore.getState();
-                  generateNewPhotoPosition();
                   setCurrentPhotoIndex(0);
                   setRetakeMode(false);
                   setCurrentView("camera");
@@ -336,14 +316,14 @@ const handleUpload = async () => {
                   setCurrentView("camera");
                 }}
                 onRetakeAll={() => {
-                  resetAll();
+                  resetSession();
                   setCurrentView("camera");
                 }}
                 onRecordAudio={() => setCurrentView("audioRecorder")}
                 onDeleteAudio={() => setAudioRecording(null)}
                 onUpload={handleUpload}
                 uploading={uploading}
-                totalPhotos={TOTAL_PHOTOS}
+                totalPhotos={photos.length}
                 todayAttendanceMarked={todayAttendanceMarked}
               />
             );

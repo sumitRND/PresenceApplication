@@ -1,228 +1,286 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Alert } from "react-native";
-import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
-import { loginUser } from "../services/authService";
-import { clearUserData, getUserData, storeUserData } from "../services/UserId";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Alert } from 'react-native';
+import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import api from '../services/api';
+
+interface Project {
+  projectCode: string;
+  department: string;
+}
 
 interface AuthState {
-  session: string | null;
-  userName: string | null;
   employeeNumber: string | null;
+  username: string | null;
   empClass: string | null;
-  projects: { projectCode: string; department: string }[];
+  projects: Project[];
+  department: string | null;
   token: string | null;
-  tokenExpiry: number | null;
   refreshToken: string | null;
-  isRefreshing: boolean;
+  tokenExpiry: number | null;
   isLoading: boolean;
   isInitialized: boolean;
-  autoLogoutTimer: ReturnType<typeof setTimeout> | null;
-
-  signIn: (username: string, password: string) => Promise<void>;
+  isAuthenticated: boolean;
+  signIn: (username: string, password: string) => Promise<boolean>;
   signOut: () => Promise<void>;
   initializeAuth: () => Promise<void>;
-  setLoading: (loading: boolean) => void;
+  refreshAuthToken: () => Promise<boolean>;
   checkTokenExpiry: () => boolean;
-  refreshTokenTimer: () => void;
-  clearAutoLogoutTimer: () => void;
   getAuthHeaders: () => { Authorization?: string };
-  refreshAuthToken: () => Promise<boolean>; 
-  scheduleTokenRefresh: () => void; 
+  scheduleTokenRefresh: () => void;
+  clearTokenRefreshTimer: () => void;
 }
+
+let tokenRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
-      session: null,
-      userName: null,
       employeeNumber: null,
+      username: null,
       empClass: null,
       projects: [],
+      department: null,
       token: null,
-      tokenExpiry: null,
       refreshToken: null,
-      isRefreshing: false,
-      isLoading: true,
+      tokenExpiry: null,
+      isLoading: false,
       isInitialized: false,
-      autoLogoutTimer: null,
+      isAuthenticated: false,
 
       initializeAuth: async () => {
-        try {
-          const userData = await getUserData();
-          const state = get();
+        const state = get();
 
+        if (state.isInitialized) return;
+
+        try {
           if (state.token && state.tokenExpiry) {
-            const isExpired = Date.now() >= state.tokenExpiry;
-            if (isExpired) {
-              const refreshed = await get().refreshAuthToken();
-              if (!refreshed) {
-                await get().signOut();
-                Alert.alert(
-                  "Session Expired",
-                  "Your session has expired. Please login again.",
-                );
+            const isValid = state.checkTokenExpiry();
+
+            if (isValid) {
+              set({
+                isAuthenticated: true,
+                isInitialized: true,
+              });
+
+              state.scheduleTokenRefresh();
+            } else if (state.refreshToken) {
+              const refreshed = await state.refreshAuthToken();
+
+              if (refreshed) {
+                set({
+                  isAuthenticated: true,
+                  isInitialized: true,
+                });
+              } else {
+                await state.signOut();
+                set({ isInitialized: true });
               }
             } else {
-              get().scheduleTokenRefresh();
+              await state.signOut();
+              set({ isInitialized: true });
             }
-          }
-
-          if (userData?.isLoggedIn && get().token) {
+          } else {
             set({
-              session: userData.employeeNumber,
-              userName: userData.name,
-              employeeNumber: userData.employeeNumber,
+              isAuthenticated: false,
+              isInitialized: true,
+            });
+          }
+        } catch (error) {
+          console.error('Auth initialization error:', error);
+          await state.signOut();
+          set({ isInitialized: true });
+        }
+      },
+
+      signIn: async (username, password) => {
+        set({ isLoading: true });
+
+        try {
+          const response = await api.post('/login', {
+            username: username.trim(),
+            password,
+          });
+
+          const { data } = response;
+
+          if (data.success && data.token) {
+            const tokenExpiry = Date.now() + 30 * 60 * 1000;
+            const department = data.projects?.[0]?.department || null;
+
+            set({
+              employeeNumber: data.employeeNumber,
+              username: data.username,
+              empClass: data.empClass,
+              projects: data.projects || [],
+              department,
+              token: data.token,
+              refreshToken: data.refreshToken || data.token,
+              tokenExpiry,
+              isAuthenticated: true,
+              isLoading: false,
             });
 
-            const { useAttendanceStore } = await import("./attendanceStore");
-            useAttendanceStore.getState().setUserId(userData.name);
+            get().scheduleTokenRefresh();
+
+            const { useAttendanceStore } = await import('./attendanceStore');
+            useAttendanceStore.getState().initializeWithUser(
+              data.employeeNumber,
+              data.username,
+              department
+            );
+
+            return true;
+          } else {
+            Alert.alert('Login Failed', data.error || 'Invalid credentials');
+            set({ isLoading: false });
+            return false;
           }
-        } catch (e) {
-          console.error("Initialization failed", e);
-          await get().signOut();
-        } finally {
-          set({ isLoading: false, isInitialized: true });
+        } catch (error: any) {
+          console.error('Login error:', error);
+
+          const errorMessage =
+            error.response?.data?.error ||
+            error.message ||
+            'Login failed. Please try again.';
+
+          Alert.alert('Login Error', errorMessage);
+          set({ isLoading: false });
+          return false;
+        }
+      },
+
+      signOut: async () => {
+        get().clearTokenRefreshTimer();
+
+        set({
+          employeeNumber: null,
+          username: null,
+          empClass: null,
+          projects: [],
+          department: null,
+          token: null,
+          refreshToken: null,
+          tokenExpiry: null,
+          isAuthenticated: false,
+          isLoading: false,
+        });
+
+        try {
+          const { useAttendanceStore } = await import('./attendanceStore');
+          useAttendanceStore.getState().clearUser();
+        } catch (error) {
+          console.error('Error clearing attendance store:', error);
+        }
+
+        try {
+          await AsyncStorage.removeItem('auth-storage');
+        } catch (error) {
+          console.error('Error clearing auth storage:', error);
         }
       },
 
       checkTokenExpiry: () => {
         const state = get();
-        if (!state.token || !state.tokenExpiry) return false;
-        return Date.now() < state.tokenExpiry;
-      },
-      refreshTokenTimer: () => {
-        get().scheduleTokenRefresh();
-      },
 
-      clearAutoLogoutTimer: () => {
-        const state = get();
-        if (state.autoLogoutTimer) {
-          clearTimeout(state.autoLogoutTimer);
-          set({ autoLogoutTimer: null });
-        }
+        if (!state.token || !state.tokenExpiry) return false;
+
+        return Date.now() < state.tokenExpiry - 60000;
       },
 
       getAuthHeaders: () => {
         const state = get();
+
         if (state.token && state.checkTokenExpiry()) {
           return { Authorization: `Bearer ${state.token}` };
         }
+
         return {};
       },
 
-      signIn: async (username, password) => {
-        set({ isLoading: true });
-        try {
-          const res = await loginUser(username, password);
-
-          if (res.success && res.token) {
-            const tokenExpiry = Date.now() + 30 * 60 * 1000;
-
-            await storeUserData({
-              employeeNumber: res.employeeNumber!,
-              name: res.username!,
-              isLoggedIn: true,
-            });
-
-            set({
-              session: res.employeeNumber,
-              userName: res.username,
-              employeeNumber: res.employeeNumber,
-              empClass: res.empClass,
-              projects: res.projects || [],
-              token: res.token,
-              refreshToken: res.token,
-              tokenExpiry,
-              isLoading: false,
-            });
-
-            const { useAttendanceStore } = await import("./attendanceStore");
-            useAttendanceStore.getState().setUserId(res.username!);
-
-            if (res.projects && res.projects.length > 0) {
-              const department = res.projects[0].department;
-              useAttendanceStore.getState().setDepartment(department);
-            }
-
-            get().scheduleTokenRefresh();
-            Alert.alert("Success", "Logged in successfully!");
-          } else {
-            set({ isLoading: false });
-            Alert.alert("Login Failed", res.error || "Unknown error");
-          }
-        } catch (err) {
-          console.error("Login error", err);
-          set({ isLoading: false });
-          Alert.alert("Error", "An unexpected error occurred during login.");
-        }
-      },
-
-      signOut: async () => {
-        try {
-          get().clearAutoLogoutTimer();
-          await clearUserData();
-          set({
-            session: null,
-            userName: null,
-            employeeNumber: null,
-            empClass: null,
-            projects: [],
-            token: null,
-            refreshToken: null,
-            tokenExpiry: null,
-            autoLogoutTimer: null,
-            isRefreshing: false,
-          });
-
-          const { useAttendanceStore } = await import("./attendanceStore");
-          useAttendanceStore.getState().clearUserId();
-        } catch (e) {
-          console.error("Sign out failed", e);
-        }
-      },
-
-      setLoading: (loading) => set({ isLoading: loading }),
-
       refreshAuthToken: async () => {
         const state = get();
-        if (state.isRefreshing) return false;
-        console.log("Token refresh not implemented - forcing re-login");
-        return false;
+
+        if (!state.refreshToken) {
+          console.log('No refresh token available');
+          return false;
+        }
+
+        try {
+          const response = await api.post('/auth/refresh', {
+            refreshToken: state.refreshToken,
+          });
+
+          const { data } = response;
+
+          if (data.success && data.token) {
+            const tokenExpiry = Date.now() + 30 * 60 * 1000;
+
+            set({
+              token: data.token,
+              refreshToken: data.refreshToken || data.token,
+              tokenExpiry,
+            });
+
+            get().scheduleTokenRefresh();
+
+            return true;
+          }
+
+          return false;
+        } catch (error) {
+          console.error('Token refresh failed:', error);
+
+          await state.signOut();
+          return false;
+        }
       },
 
       scheduleTokenRefresh: () => {
         const state = get();
-        state.clearAutoLogoutTimer();
 
-        if (state.tokenExpiry) {
-          const refreshTime = state.tokenExpiry - Date.now() - 2 * 60 * 1000;
+        state.clearTokenRefreshTimer();
 
-          if (refreshTime > 0) {
-            const timer = setTimeout(() => {
-              get().refreshAuthToken();
-            }, refreshTime);
+        if (!state.tokenExpiry || !state.token) return;
 
-            set({ autoLogoutTimer: timer });
-          } else {
+        const refreshTime = state.tokenExpiry - Date.now() - 5 * 60 * 1000;
+
+        if (refreshTime > 0) {
+          tokenRefreshTimer = setTimeout(() => {
             get().refreshAuthToken();
-          }
+          }, refreshTime);
+        } else {
+          state.refreshAuthToken();
+        }
+      },
+
+      clearTokenRefreshTimer: () => {
+        if (tokenRefreshTimer) {
+          clearTimeout(tokenRefreshTimer);
+          tokenRefreshTimer = null;
         }
       },
     }),
     {
-      name: "auth-storage",
+      name: 'auth-storage',
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({
-        session: state.session,
-        userName: state.userName,
         employeeNumber: state.employeeNumber,
+        username: state.username,
         empClass: state.empClass,
         projects: state.projects,
+        department: state.department,
         token: state.token,
         refreshToken: state.refreshToken,
         tokenExpiry: state.tokenExpiry,
       }),
-    },
-  ),
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          setTimeout(() => {
+            state.initializeAuth();
+          }, 100);
+        }
+      },
+    }
+  )
 );

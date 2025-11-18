@@ -1,8 +1,8 @@
 import { profileContainerStyles } from '@/constants/style';
 import FontAwesome6 from '@expo/vector-icons/FontAwesome6';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
-import { useProfile } from '../../hooks/useProfile';
+import { getUserProfile } from '../../services/userServices';
 import { useAuthStore } from '../../store/authStore';
 import { AttendanceCalendar } from './AttendanceCalendar';
 import { AvatarDisplay } from './AvatarDisplay';
@@ -11,17 +11,32 @@ import { LogoutButton } from './LogoutButton';
 import { ProfileField } from './ProfileFieldProfile';
 
 export const ProfileContainer: React.FC = () => {
-  const { profile, updating, updateAvatar } = useProfile();
-  const { projects } = useAuthStore();
+  const { projects, employeeNumber } = useAuthStore();
+  const [profile, setProfile] = useState<any>(null);
+  const [updating, setUpdating] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+
+  const fetchProfile = async () => {
+    const { employeeNumber } = useAuthStore.getState();
+    if (employeeNumber) {
+      const response = await getUserProfile(employeeNumber);
+      if (response.success) {
+        setProfile(response.data);
+      }
+    }
+  };
+
+  useEffect(() => {
+    fetchProfile();
+  }, [employeeNumber]);
 
   const handleAvatarSelect = async (avatarData: {
     style: string;
     seed: string;
     url: string;
   }) => {
-    await updateAvatar(avatarData);
+    // This function needs to be implemented
   };
 
   if (!profile) {
@@ -154,4 +169,3 @@ export const ProfileContainer: React.FC = () => {
     </ScrollView>
   );
 };
-

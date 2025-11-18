@@ -4,9 +4,9 @@ import {
   AttendanceDate,
   AttendanceStatistics,
   getAttendanceCalendar,
-  getCachedHolidays,
+  getHolidays,
   Holiday,
-} from "@/services/attendanceCalendarService";
+} from "../../services/userServices";
 import { useAttendanceStore } from "@/store/attendanceStore";
 import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
 import { useFocusEffect } from "@react-navigation/native";
@@ -245,7 +245,7 @@ const fetchAttendanceData = useCallback(
         setLoading(true);
       }
       try {
-        const holidayData = await getCachedHolidays(selectedYear, selectedMonth);
+        const holidayData = await getHolidays(selectedYear, selectedMonth);
         setHolidays(holidayData);
         await fetchAttendanceData(false); // Pass false to avoid double loading
       } catch (error) {

@@ -1,5 +1,4 @@
 import {
-  AudioModule,
   RecordingPresets,
   setAudioModeAsync,
   useAudioPlayer,
@@ -12,26 +11,22 @@ import { Alert } from "react-native";
 import { AudioRecording } from "../types/attendance";
 
 export function useAudio() {
-  const [audioPermission, setAudioPermission] = useState<boolean>(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentRecording, setCurrentRecording] = useState<AudioRecording | null>(null);
   const [shouldPlay, setShouldPlay] = useState(false);
 
-  const audioRecorder = useAudioRecorder({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true });
-  const recorderState = useAudioRecorderState(audioRecorder, 100);
+  const audioRecorder = useAudioRecorder({
+    ...RecordingPresets.HIGH_QUALITY,
+    isMeteringEnabled: true,
+  });
 
+  const recorderState = useAudioRecorderState(audioRecorder, 100);
   const audioPlayer = useAudioPlayer(currentRecording?.uri ?? undefined);
   const playerStatus = useAudioPlayerStatus(audioPlayer);
 
   useEffect(() => {
     (async () => {
-      const status = await AudioModule.requestRecordingPermissionsAsync();
-      if (!status.granted) {
-        Alert.alert("Permission to access microphone was denied");
-      } else {
-        setAudioPermission(status.granted);
-      }
-      setAudioModeAsync({
+      await setAudioModeAsync({
         playsInSilentMode: true,
         allowsRecording: true,
       });
@@ -56,9 +51,9 @@ export function useAudio() {
             await audioPlayer.seekTo(0);
           }
           await audioPlayer.play();
-          setShouldPlay(false);
         } catch (error) {
           console.error("Deferred playback error:", error);
+        } finally {
           setShouldPlay(false);
         }
       })();
@@ -66,10 +61,6 @@ export function useAudio() {
   }, [shouldPlay, playerStatus, isPlaying, audioPlayer]);
 
   const startRecording = async () => {
-    if (!audioPermission) {
-      Alert.alert("Error", "Microphone permission not granted");
-      return;
-    }
     try {
       if (isPlaying) {
         await stopAudio();
@@ -87,8 +78,12 @@ export function useAudio() {
       await audioRecorder.stop();
       const status = audioRecorder.getStatus();
       const uri = status.url;
+
       if (uri) {
-        const recording = { uri, duration: (status.durationMillis || 0) / 1000 };
+        const recording = {
+          uri,
+          duration: (status.durationMillis || 0) / 1000,
+        };
         setCurrentRecording(recording);
         return recording;
       }
@@ -104,23 +99,25 @@ export function useAudio() {
       Alert.alert("Error", "No valid recording found");
       return;
     }
+
     try {
       const isSameRecording = currentRecording?.uri === recording.uri;
 
       if (isPlaying) {
         await stopAudio();
-      } else {
-        if (!isSameRecording) {
-          setCurrentRecording(recording);
-          setShouldPlay(true);
-        } else if (playerStatus?.isLoaded) {
-          if (playerStatus.currentTime >= (playerStatus.duration || 0)) {
-            await audioPlayer.seekTo(0);
-          }
-          await audioPlayer.play();
-        } else {
-          setShouldPlay(true);
+        return;
+      }
+
+      if (!isSameRecording) {
+        setCurrentRecording(recording);
+        setShouldPlay(true);
+      } else if (playerStatus?.isLoaded) {
+        if (playerStatus.currentTime >= (playerStatus.duration || 0)) {
+          await audioPlayer.seekTo(0);
         }
+        await audioPlayer.play();
+      } else {
+        setShouldPlay(true);
       }
     } catch (error) {
       Alert.alert("Error", "Failed to play audio");
@@ -142,39 +139,25 @@ export function useAudio() {
     }
   };
 
-  const deleteRecording = () => {
-    return new Promise<void>((resolve) => {
-      Alert.alert(
-        "Delete Recording",
-        "Are you sure you want to delete this audio recording?",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Delete",
-            style: "destructive",
-            onPress: async () => {
-              if (isPlaying) {
-                await stopAudio();
-              }
-              setCurrentRecording(null);
-              setIsPlaying(false);
-              setShouldPlay(false);
-              resolve();
-            },
+  const deleteRecording = () =>
+    new Promise<void>((resolve) => {
+      Alert.alert("Delete Recording", "Are you sure you want to delete this audio recording?", [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            if (isPlaying) await stopAudio();
+            setCurrentRecording(null);
+            setIsPlaying(false);
+            setShouldPlay(false);
+            resolve();
           },
-        ]
-      );
+        },
+      ]);
     });
-  };
-
-  const requestPermission = async () => {
-    const { granted } = await AudioModule.requestRecordingPermissionsAsync();
-    setAudioPermission(granted);
-    return granted;
-  };
 
   return {
-    audioPermission,
     recorderState,
     isPlaying,
     currentRecording,
@@ -185,6 +168,5 @@ export function useAudio() {
     stopAudio,
     deleteRecording,
     setCurrentRecording,
-    requestPermission,
   };
 }

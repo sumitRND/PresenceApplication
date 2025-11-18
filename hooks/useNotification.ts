@@ -5,32 +5,29 @@ import { useAttendanceStore } from '../store/attendanceStore';
 import { useAuthStore } from '../store/authStore';
 
 export function useNotifications() {
-  const { session, userName } = useAuthStore();
-  const { 
-    todayAttendanceMarked, 
+  const { isAuthenticated, username } = useAuthStore();
+  const {
+    todayAttendanceMarked,
     attendanceRecords,
-    fetchTodayAttendanceFromServer 
+    fetchTodayAttendance,
+    getTodayRecord,
   } = useAttendanceStore();
-  
+
   const appState = useRef(AppState.currentState);
-  const notificationUpdateInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const notificationUpdateInterval =
+    useRef<ReturnType<typeof setInterval> | null>(null);
   const hasShownLoginNotification = useRef(false);
 
-  const getTodayRecord = () => {
-    const today = new Date().toISOString().split('T')[0];
-    return attendanceRecords.find(record => record.date === today);
-  };
-
   useEffect(() => {
-    if (session && userName) {
-      console.log('Setting up notifications for user:', userName);
+    if (isAuthenticated && username) {
+      console.log('Setting up notifications for user:', username);
       setupNotifications();
-      
+
       if (!hasShownLoginNotification.current) {
         notificationService.showLoginSessionNotification();
         hasShownLoginNotification.current = true;
       }
-      
+
       notificationUpdateInterval.current = setInterval(() => {
         updateNotificationSchedules();
       }, 30 * 60 * 1000);
@@ -44,10 +41,10 @@ export function useNotifications() {
       notificationService.cancelAllNotifications();
       hasShownLoginNotification.current = false;
     }
-  }, [session, userName]);
+  }, [isAuthenticated, username]);
 
   useEffect(() => {
-    if (session) {
+    if (isAuthenticated) {
       updateNotificationSchedules();
     }
   }, [todayAttendanceMarked, attendanceRecords]);
@@ -61,8 +58,8 @@ export function useNotifications() {
     if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
       console.log('App came to foreground, checking attendance status');
       
-      if (session) {
-        await fetchTodayAttendanceFromServer();
+      if (isAuthenticated) {
+        await fetchTodayAttendance();
         updateNotificationSchedules();
       }
     }

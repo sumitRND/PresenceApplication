@@ -1,22 +1,22 @@
 
-import React, { useEffect } from 'react';
 import { useNotifications } from '@/hooks/useNotification';
 import { useAuthStore } from '@/store/authStore';
+import React, { useEffect } from 'react';
 
 interface NotificationProviderProps {
   children: React.ReactNode;
 }
 
 export function NotificationProvider({ children }: NotificationProviderProps) {
-  const { session } = useAuthStore();
+  const { isAuthenticated } = useAuthStore();
   const notifications = useNotifications();
 
   useEffect(() => {
-    if (session) {
-      console.log('Initializing notifications for session:', session);
+    if (isAuthenticated) {
+      console.log('Initializing notifications for session:', isAuthenticated);
       notifications.updateNotificationSchedules();
     }
-  }, [session]);
+  }, [isAuthenticated]);
 
   return <>{children}</>;
 }

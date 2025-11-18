@@ -1,30 +1,24 @@
-import { TermsAndConditionsScreen } from "@/component/ui/TermsAndConditionsScreen";
-import { useAudio } from "@/hooks/useAudio";
-import { useCamera } from "@/hooks/useCamera";
-import { useGeofence as useLocation } from "@/hooks/useGeofence";
-import { NotificationProvider } from "@/provider/NotificationProvider";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as IntentLauncher from "expo-intent-launcher";
-import * as Location from "expo-location";
-import {
-  router,
-  Stack,
-  useRootNavigationState,
-  useSegments,
-} from "expo-router";
-import { StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
+import { TermsAndConditionsScreen } from '@/component/ui/TermsAndConditionsScreen';
+import { usePermissions } from '@/hooks/usePermissions';
+import { NotificationProvider } from '@/provider/NotificationProvider';
+import { useAuthStore } from '@/store/authStore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as IntentLauncher from 'expo-intent-launcher';
+import * as Location from 'expo-location';
+import { router, Stack, useRootNavigationState, useSegments } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import React, { memo, useCallback, useEffect, useRef } from 'react';
 import {
   Alert,
   AppState,
+  AppStateStatus,
   Platform,
   Text,
-  TextInput,
-  TouchableOpacity,
-} from "react-native";
-import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { useAuthStore } from "../store/authStore";
+  TextInput
+} from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+// Set default text scaling limits
 (Text as any).defaultProps = (Text as any).defaultProps || {};
 (Text as any).defaultProps.allowFontScaling = true;
 (Text as any).defaultProps.maxFontSizeMultiplier = 1.3;
@@ -33,152 +27,170 @@ import { useAuthStore } from "../store/authStore";
 (TextInput as any).defaultProps.allowFontScaling = true;
 (TextInput as any).defaultProps.maxFontSizeMultiplier = 1.3;
 
-(TouchableOpacity as any).defaultProps =
-  (TouchableOpacity as any).defaultProps || {};
-(TouchableOpacity as any).defaultProps.activeOpacity = 0.7;
-
-function AuthGate({ children }: { children: React.ReactNode }) {
-  const {
-    session,
+// Memoized auth gate component
+const AuthGate = memo(({ children }: { children: React.ReactNode }) => {
+  const { 
+    isAuthenticated, 
+    isInitialized, 
     isLoading,
-    isInitialized,
     initializeAuth,
     checkTokenExpiry,
-    tokenExpiry,
-    refreshAuthToken,
-    signOut,
+    refreshAuthToken
   } = useAuthStore();
+  
   const segments = useSegments();
   const navigationState = useRootNavigationState();
-
+  const appStateRef = useRef(AppState.currentState);
+  
+  // Initialize auth on mount
   useEffect(() => {
-    if (!isInitialized) initializeAuth();
+    if (!isInitialized) {
+      initializeAuth();
+    }
   }, [isInitialized, initializeAuth]);
-
-  // Simplified approach for handling app state changes
+  
+  // Handle app state changes for token refresh
   useEffect(() => {
-    const handleAppStateChange = (nextAppState: string) => {
-      if (nextAppState === "active" && session) {
-        // Check and refresh if needed when app becomes active
-        const timeUntilExpiry = (tokenExpiry || 0) - Date.now();
-
-        // If token is expiring in less than 5 minutes, or already expired
-        if (timeUntilExpiry < 5 * 60 * 1000) {
-          // If token is still valid, refresh it. Otherwise, sign out.
-          checkTokenExpiry() ? refreshAuthToken() : signOut();
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      if (
+        appStateRef.current.match(/inactive|background/) && 
+        nextAppState === 'active' && 
+        isAuthenticated
+      ) {
+        // App came to foreground, check token
+        if (!checkTokenExpiry()) {
+          refreshAuthToken();
         }
       }
+      appStateRef.current = nextAppState;
     };
-
-    const subscription = AppState.addEventListener(
-      "change",
-      handleAppStateChange,
-    );
+    
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
     return () => subscription.remove();
-  }, [session, tokenExpiry, checkTokenExpiry, refreshAuthToken, signOut]);
-
-  // This effect handles navigation based on auth state
+  }, [isAuthenticated, checkTokenExpiry, refreshAuthToken]);
+  
+  // Handle navigation based on auth state
   useEffect(() => {
     if (!navigationState?.key || isLoading || !isInitialized) return;
-
-    const inAuthGroup = segments[0] === "(auth)";
-
-    if (!session && !inAuthGroup) {
-      router.replace("/(auth)/login");
-    } else if (session && inAuthGroup) {
-      router.replace("/(tabs)");
+    
+    const inAuthGroup = segments[0] === '(auth)';
+    
+    if (!isAuthenticated && !inAuthGroup) {
+      router.replace('/(auth)/login');
+    } else if (isAuthenticated && inAuthGroup) {
+      router.replace('/(tabs)');
     }
-  }, [session, segments, navigationState?.key, isLoading, isInitialized]);
-
+  }, [isAuthenticated, segments, navigationState?.key, isLoading, isInitialized]);
+  
   return <>{children}</>;
-}
+});
+AuthGate.displayName = 'AuthGate';
 
-function TermsGate({ children }: { children: React.ReactNode }) {
-  const [hasAcceptedTerms, setHasAcceptedTerms] = useState<boolean | null>(
-    null,
-  );
-  const [processing, setProcessing] = useState(false);
-  const { session } = useAuthStore();
-
-  const { requestPermission: requestCamera } = useCamera();
-  const { requestPermission: requestMic } = useAudio();
-  const { requestPermission: requestLocation } = useLocation();
-
+// Memoized terms gate component
+const TermsGate = memo(({ children }: { children: React.ReactNode }) => {
+  const [hasAcceptedTerms, setHasAcceptedTerms] = React.useState<boolean | null>(null);
+  const [isProcessing, setIsProcessing] = React.useState(false);
+  const { isAuthenticated } = useAuthStore();
+  const { requestAllPermissions } = usePermissions();
+  
+  // Check terms acceptance
   useEffect(() => {
-    const checkTermsAcceptance = async () => {
+    const checkTerms = async () => {
       try {
-        const accepted = await AsyncStorage.getItem("termsAcceptedOnce");
-        setHasAcceptedTerms(accepted === "true");
+        const accepted = await AsyncStorage.getItem('termsAcceptedOnce');
+        setHasAcceptedTerms(accepted === 'true');
       } catch (error) {
-        console.error("Error checking terms acceptance:", error);
+        console.error('Error checking terms:', error);
         setHasAcceptedTerms(false);
       }
     };
-
-    checkTermsAcceptance();
+    
+    checkTerms();
   }, []);
-
-  const handleAccept = async () => {
-    setProcessing(true);
+  
+  const handleAccept = useCallback(async () => {
+    setIsProcessing(true);
+    
     try {
-      if (Platform.OS === "android") {
-        const locationServicesEnabled =
-          await Location.hasServicesEnabledAsync();
+      // Check location services on Android
+      if (Platform.OS === 'android') {
+        const locationServicesEnabled = await Location.hasServicesEnabledAsync();
+        
         if (!locationServicesEnabled) {
           Alert.alert(
-            "Enable Location Services",
-            "Please enable location services on your device before continuing.",
+            'Enable Location Services',
+            'Please enable location services before continuing.',
             [
               {
-                text: "Open Settings",
-                onPress: async () => {
-                  await IntentLauncher.startActivityAsync(
-                    IntentLauncher.ActivityAction.LOCATION_SOURCE_SETTINGS,
+                text: 'Open Settings',
+                onPress: () => {
+                  IntentLauncher.startActivityAsync(
+                    IntentLauncher.ActivityAction.LOCATION_SOURCE_SETTINGS
                   );
-                  setProcessing(false);
+                  setIsProcessing(false);
                 },
               },
               {
-                text: "Cancel",
-                style: "cancel",
-                onPress: () => {
-                  setProcessing(false);
-                },
+                text: 'Cancel',
+                style: 'cancel',
+                onPress: () => setIsProcessing(false),
               },
-            ],
+            ]
           );
           return;
         }
       }
-
-      await Promise.all([requestCamera(), requestMic(), requestLocation()]);
-      await AsyncStorage.setItem("termsAcceptedOnce", "true");
-      setHasAcceptedTerms(true);
+      
+      // Request all permissions
+      const allGranted = await requestAllPermissions();
+      
+      if (allGranted) {
+        await AsyncStorage.setItem('termsAcceptedOnce', 'true');
+        setHasAcceptedTerms(true);
+      } else {
+        Alert.alert(
+          'Permissions Required',
+          'All permissions must be granted to use the app.'
+        );
+      }
     } catch (error) {
-      console.error("Error accepting terms:", error);
-      Alert.alert("Error", "Failed to setup permissions. Please try again.");
+      console.error('Error accepting terms:', error);
+      Alert.alert('Error', 'Failed to setup permissions. Please try again.');
     } finally {
-      setProcessing(false);
+      setIsProcessing(false);
     }
-  };
-
+  }, [requestAllPermissions]);
+  
+  // Show loading while checking
   if (hasAcceptedTerms === null) {
-    return null; // Or a loading screen
+    return null;
   }
-
-  if (!hasAcceptedTerms && session) {
+  
+  // Show terms if not accepted and authenticated
+  if (!hasAcceptedTerms && isAuthenticated) {
     return (
       <TermsAndConditionsScreen
-        isProcessing={processing}
+        isProcessing={isProcessing}
         onAccept={handleAccept}
       />
     );
   }
-
+  
   return <>{children}</>;
-}
+});
+TermsGate.displayName = 'TermsGate';
 
+// Root layout component
 export default function RootLayout() {
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      // Clear any timers or subscriptions
+      const { clearTokenRefreshTimer } = useAuthStore.getState();
+      clearTokenRefreshTimer();
+    };
+  }, []);
+  
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <AuthGate>
@@ -186,13 +198,34 @@ export default function RootLayout() {
           <NotificationProvider>
             <Stack
               screenOptions={{
-                animation: "simple_push",
+                animation: 'simple_push',
                 animationDuration: 200,
+                headerShown: false,
               }}
             >
-              <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="+not-found" />
+              <Stack.Screen 
+                name="(auth)" 
+                options={{ 
+                  headerShown: false,
+                  // Prevent going back from auth
+                  gestureEnabled: false,
+                }} 
+              />
+              <Stack.Screen 
+                name="(tabs)" 
+                options={{ 
+                  headerShown: false,
+                  // Prevent going back to auth
+                  gestureEnabled: false,
+                }} 
+              />
+              <Stack.Screen 
+                name="+not-found"
+                options={{
+                  title: 'Not Found',
+                  headerShown: true,
+                }}
+              />
             </Stack>
             <StatusBar style="auto" />
           </NotificationProvider>

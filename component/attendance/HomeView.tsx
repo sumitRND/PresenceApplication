@@ -1,11 +1,6 @@
 import { brutalistColors, colors } from "@/constants/colors";
 import { homeViewStyles } from "@/constants/style";
 import { useGeofence } from "@/hooks/useGeofence";
-import { checkoutAttendance } from "@/services/attendanceService";
-import {
-  attendanceValidation,
-  ValidationResult,
-} from "@/services/attendanceValidationService";
 import { useAuthStore } from "@/store/authStore";
 import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
 import { CameraCapturedPicture } from "expo-camera";
@@ -18,6 +13,11 @@ import {
   View
 } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
+import { checkoutAttendance } from "../../services/attendanceService";
+import {
+  ValidationResult,
+  validationService,
+} from "../../services/attendanceValidationService";
 import { useAttendanceStore } from "../../store/attendanceStore";
 import { AudioRecording } from "../../types/attendance";
 import { ActionButtons } from "./ActionButton";
@@ -448,7 +448,7 @@ export function HomeView({
   useEffect(() => {
     const checkValidation = () => {
       if (geofence.userPos && department) {
-        const validation = attendanceValidation.validateAttendance(
+        const validation = validationService.validateAttendance(
           geofence.userPos,
           department,
           userLocationType,
@@ -475,7 +475,7 @@ export function HomeView({
   useEffect(() => {
     const refreshAttendanceStatus = async () => {
       if (useAttendanceStore.getState().userId) {
-        await useAttendanceStore.getState().fetchTodayAttendanceFromServer();
+        await useAttendanceStore.getState().fetchTodayAttendance();
       }
     };
     refreshAttendanceStatus();
@@ -501,7 +501,7 @@ export function HomeView({
                 Alert.alert("Success", "Checkout successful!");
                 await useAttendanceStore
                   .getState()
-                  .fetchTodayAttendanceFromServer();
+                  .fetchTodayAttendance();
               } else {
                 Alert.alert("Error", result.error || "Checkout failed");
               }

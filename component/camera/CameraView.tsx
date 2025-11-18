@@ -14,10 +14,10 @@ import Animated, {
 
 import { colors } from "@/constants/colors";
 import { cameraViewStyles } from "@/constants/style";
+import { usePermissions } from "../../hooks/usePermissions";
 import { CameraControls } from "./CameraControl";
 
 interface CameraViewProps {
-  camera: any;
   currentPhotoIndex: number;
   retakeMode: boolean;
   totalPhotos: number;
@@ -26,13 +26,13 @@ interface CameraViewProps {
 }
 
 export function CameraView({
-  camera,
   currentPhotoIndex,
   retakeMode,
   totalPhotos,
   onPhotoTaken,
   onBack,
 }: CameraViewProps) {
+  const { cameraRef, cameraFacing } = usePermissions();
   const [capturedPhoto, setCapturedPhoto] =
     useState<CameraCapturedPicture | null>(null);
   const [showPreview, setShowPreview] = useState(false);
@@ -49,10 +49,10 @@ export function CameraView({
     setIsCapturing(true);
 
     try {
-      const photo = await camera.takePicture();
+      const photo = await cameraRef.current?.takePictureAsync();
       if (photo) {
         let processedPhoto = photo;
-        if (camera.facing === "front") {
+        if (cameraFacing === "front") {
           const manipulatedImage = await ImageManipulator.manipulateAsync(
             photo.uri,
             [{ flip: ImageManipulator.FlipType.Horizontal }],
@@ -164,9 +164,9 @@ export function CameraView({
       {/* Camera feed */}
       <ExpoCameraView
         style={StyleSheet.absoluteFillObject}
-        ref={camera.ref}
+        ref={cameraRef}
         mode="picture"
-        facing={camera.facing}
+        facing={cameraFacing}
         mute={false}
         responsiveOrientationWhenOrientationLocked
       />

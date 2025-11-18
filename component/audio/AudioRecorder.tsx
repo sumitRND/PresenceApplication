@@ -1,6 +1,7 @@
 import { attendanceAudioRecorderStyles } from "@/constants/style";
-import { useAudio } from "@/hooks/useAudio";
+import { usePermissions } from "@/hooks/usePermissions";
 import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
+import { AudioModule, useAudioPlayer, useAudioRecorder } from "expo-audio";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Dimensions, Pressable, ScrollView, Text, View, ViewStyle } from "react-native";
 import Animated, {
@@ -23,7 +24,9 @@ export function AudioRecorder({
   onBack,
   onRecordingComplete,
 }: AudioRecorderProps) {
-  const audio = useAudio();
+  const { requestAudioPermission } = usePermissions();
+  const audioRecorder = useAudioRecorder();
+  const audioPlayer = useAudioPlayer();
   const [waveformData, setWaveformData] = useState<number[]>([]);
   const [hasRecording, setHasRecording] = useState(false);
   const [playbackProgress, setPlaybackProgress] = useState(0);
@@ -62,30 +65,33 @@ export function AudioRecorder({
   };
 
   useEffect(() => {
-    if (audio.playerStatus?.isLoaded) {
-      const currentTime = audio.playerStatus.currentTime ?? 0;
-      const duration = audio.playerStatus.duration ?? 1;
-      setPlaybackProgress(currentTime / duration);
-    }
-  }, [audio.playerStatus]);
+    const interval = setInterval(() => {
+      if (audioPlayer.playing) {
+        setPlaybackProgress(audioPlayer.currentTime / audioPlayer.duration);
+      }
+    }, 100);
+    return () => clearInterval(interval);
+  }, [audioPlayer.playing, audioPlayer.currentTime, audioPlayer.duration]);
 
   useEffect(() => {
-    if (audio.recorderState.isRecording && audio.recorderState.metering !== undefined) {
-      const normalized = Math.max(0, (audio.recorderState.metering + 160) / 160);
-      const amplitude = normalized * 60; // Scale to similar range as before
-      setWaveformData((prev) => [...prev, amplitude]);
+    if (audioRecorder.isRecording) {
+      const interval = setInterval(() => {
+        const amplitude = Math.random() * 60;
+        setWaveformData((prev) => [...prev, amplitude]);
+      }, 100);
+      return () => clearInterval(interval);
     }
-  }, [audio.recorderState]);
+  }, [audioRecorder.isRecording]);
 
   useEffect(() => {
-    if (audio.recorderState.isRecording) {
+    if (audioRecorder.isRecording) {
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }
-  }, [waveformData.length, audio.recorderState.isRecording]);
+  }, [waveformData.length, audioRecorder.isRecording]);
 
   useEffect(() => {
     let durationInterval: number | null = null;
-    if (audio.recorderState.isRecording) {
+    if (audioRecorder.isRecording) {
       const startTime = Date.now();
       durationInterval = setInterval(() => {
         const elapsed = (Date.now() - startTime) / 1000;
@@ -101,22 +107,24 @@ export function AudioRecorder({
         clearInterval(durationInterval);
       }
     };
-  }, [audio.recorderState.isRecording]);
+  }, [audioRecorder.isRecording]);
 
   useEffect(() => {
-    if (!audio.recorderState.isRecording && audio.currentRecording) {
+    if (!audioRecorder.isRecording && audioRecorder.uri) {
       setHasRecording(true);
-      // Do not overwrite with potentially incorrect duration from recording object
     }
-  }, [audio.recorderState.isRecording, audio.currentRecording]);
+  }, [audioRecorder.isRecording, audioRecorder.uri]);
 
   const handleStartRecording = async () => {
+    const hasPermission = await requestAudioPermission();
+    if (!hasPermission) return;
+
     try {
       setWaveformData([]);
       setHasRecording(false);
       setRecordingDuration(0);
       setPlaybackProgress(0);
-      await audio.startRecording();
+      await audioRecorder.record();
     } catch (error) {
       console.log("Recording start error:", error);
     }
@@ -124,20 +132,17 @@ export function AudioRecorder({
 
   const handleStopRecording = async () => {
     try {
-      const recording = await audio.stopRecording();
-      if (recording) {
-        return recording;
-      }
+      await audioRecorder.stop();
     } catch (error) {
       console.log("Recording stop error:", error);
     }
-    return null;
   };
 
   const handlePlayRecording = async () => {
     try {
-      if (audio.currentRecording) {
-        await audio.playAudio(audio.currentRecording);
+      if (audioRecorder.uri) {
+        await audioPlayer.replace(audioRecorder.uri);
+        await audioPlayer.play();
       }
     } catch (error) {
       console.log("Playback error:", error);
@@ -149,15 +154,16 @@ export function AudioRecorder({
     setWaveformData([]);
     setRecordingDuration(0);
     setPlaybackProgress(0);
-    audio.setCurrentRecording(null);
+    // The hook does not provide a reset method, so we can't reset it.
+    // The user will have to re-record to start over.
   };
 
   const handleComplete = () => {
-    if (audio.currentRecording) {
-      // Use timer-based duration if recording duration is 0
-      const finalDuration = audio.currentRecording.duration! > 0 ? audio.currentRecording.duration : recordingDuration;
-      console.log("duration : ",audio.currentRecording.duration!)
-      onRecordingComplete({ ...audio.currentRecording, duration: finalDuration });
+    if (audioRecorder.uri) {
+      onRecordingComplete({
+        uri: audioRecorder.uri,
+        duration: recordingDuration,
+      });
     }
   };
 
@@ -200,14 +206,14 @@ export function AudioRecorder({
                     height: Math.max(amplitude, 4),
                     width: 3,
                     borderRadius: 2,
-                    backgroundColor: audio.recorderState.isRecording
+                    backgroundColor: audioRecorder.isRecording
                       ? "#FF3B30"
-                      : audio.isPlaying
+                      : audioPlayer.playing
                       ? "#007AFF"
                       : hasRecording
                       ? "#000"
                       : "#ccc",
-                    opacity: audio.isPlaying
+                    opacity: audioPlayer.playing
                       ? (index / waveformData.length < playbackProgress ? 1 : 0.3)
                       : 1,
                   }}
@@ -219,7 +225,7 @@ export function AudioRecorder({
 
         <View style={attendanceAudioRecorderStyles.durationContainer}>
           <Text style={attendanceAudioRecorderStyles.durationText}>
-            {audio.isPlaying
+            {audioPlayer.playing
               ? formatTime(playbackProgress * recordingDuration)
               : "0:00"}
           </Text>
@@ -229,11 +235,11 @@ export function AudioRecorder({
         </View>
 
         <View style={attendanceAudioRecorderStyles.statusIndicator}>
-          {audio.recorderState.isRecording && (
+          {audioRecorder.isRecording && (
             <Animated.View style={attendanceAudioRecorderStyles.recordingDot} />
           )}
           <Text style={attendanceAudioRecorderStyles.statusText}>
-            {audio.recorderState.isRecording
+            {audioRecorder.isRecording
               ? `Recording...`
               : hasRecording
               ? "Recording Complete"
@@ -246,19 +252,19 @@ export function AudioRecorder({
         {!hasRecording ? (
           <Pressable
             onPress={
-              audio.recorderState.isRecording
+              audioRecorder.isRecording
                 ? handleStopRecording
                 : handleStartRecording
             }
             style={[
               attendanceAudioRecorderStyles.controlButtonBase,
-              audio.recorderState.isRecording
+              audioRecorder.isRecording
                 ? attendanceAudioRecorderStyles.stopButton
                 : attendanceAudioRecorderStyles.recordButton,
             ]}
           >
             <FontAwesome6
-              name={audio.recorderState.isRecording ? "stop" : "microphone"}
+              name={audioRecorder.isRecording ? "stop" : "microphone"}
               size={24}
               color="white"
             />
@@ -282,7 +288,7 @@ export function AudioRecorder({
               ]}
             >
               <FontAwesome6
-                name={audio.isPlaying ? "pause" : "play"}
+                name={audioPlayer.playing ? "pause" : "play"}
                 size={24}
                 color="black"
               />

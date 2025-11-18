@@ -1,11 +1,36 @@
-import React from 'react';
-import { ScrollView, StyleSheet, ActivityIndicator, View, Text, TouchableOpacity } from 'react-native';
-import { ProfileHeader } from '../../component/profile/ProfileHandler';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { ProfileContainer } from '../../component/profile/ProfileContainer';
-import { useProfile } from '../../hooks/useProfile';
+import { ProfileHeader } from '../../component/profile/ProfileHandler';
+import { getUserProfile } from '../../services/userServices';
+import { useAuthStore } from '../../store/authStore';
+
+interface ProfileData {
+  username: string;
+}
 
 export default function ProfileScreen() {
-  const { profile, loading, fetchProfile } = useProfile();
+  const { employeeNumber } = useAuthStore();
+  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchProfile = () => {
+    if (employeeNumber) {
+      setLoading(true);
+      getUserProfile(employeeNumber).then(response => {
+        if (response.success && response.data) {
+          setProfile(response.data);
+        }
+        setLoading(false);
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (employeeNumber) {
+      fetchProfile();
+    }
+  }, [employeeNumber]);
 
   if (loading) {
     return (
