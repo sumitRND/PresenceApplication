@@ -41,7 +41,7 @@ export function AudioSection({
     } else {
       pulseScale.value = withTiming(1);
     }
-  }, [audioRecording]);
+  }, [audioRecording, pulseScale]);
 
   const pulseStyle = useAnimatedStyle(() => ({
     transform: [{ scale: pulseScale.value }],

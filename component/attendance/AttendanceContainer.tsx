@@ -211,26 +211,26 @@ const handleUpload = async () => {
 
 
   // Add a helper function to show location status
-  const getLocationStatusMessage = () => {
-    if (!geofence.userPos || !useAttendanceStore.getState().department) {
-      return null;
-    }
+  // const getLocationStatusMessage = () => {
+  //   if (!geofence.userPos || !useAttendanceStore.getState().department) {
+  //     return null;
+  //   }
 
-    const { department, userLocationType } = useAttendanceStore.getState();
-    const status = attendanceValidation.getLocationStatus(
-      geofence.userPos,
-      department || "",
-      userLocationType
-    );
+  //   const { department, userLocationType } = useAttendanceStore.getState();
+  //   const status = attendanceValidation.getLocationStatus(
+  //     geofence.userPos,
+  //     department || "",
+  //     userLocationType
+  //   );
 
-    const timeCheck = attendanceValidation.isWithinWorkingHours();
+  //   const timeCheck = attendanceValidation.isWithinWorkingHours();
 
-    return {
-      location: status,
-      timeStatus: timeCheck.timeInfo,
-      canMarkAttendance: timeCheck.isValid,
-    };
-  };
+  //   return {
+  //     location: status,
+  //     timeStatus: timeCheck.timeInfo,
+  //     canMarkAttendance: timeCheck.isValid,
+  //   };
+  // };
 
   const mapComponent = React.useMemo(
     () => (

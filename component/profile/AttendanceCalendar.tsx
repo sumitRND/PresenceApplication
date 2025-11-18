@@ -65,13 +65,13 @@ export const AttendanceCalendar: React.FC<AttendanceCalendarProps> = ({
   );
   const { fieldTripDates } = useAttendanceStore();
 
-  const isWorkingDay = (dateStr: string, holidays: Holiday[]): boolean => {
-    const date = new Date(dateStr);
-    const dayOfWeek = date.getDay();
-    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-    const isHoliday = holidays.some((h) => h.date === dateStr);
-    return !isWeekend && !isHoliday;
-  };
+  // const isWorkingDay = (dateStr: string, holidays: Holiday[]): boolean => {
+  //   const date = new Date(dateStr);
+  //   const dayOfWeek = date.getDay();
+  //   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+  //   const isHoliday = holidays.some((h) => h.date === dateStr);
+  //   return !isWeekend && !isHoliday;
+  // };
 
 const fetchAttendanceData = useCallback(
   async (showLoading = true) => {

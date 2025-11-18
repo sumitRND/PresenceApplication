@@ -4,7 +4,6 @@ import {
   CameraView as ExpoCameraView,
 } from "expo-camera";
 import { Image } from "expo-image";
-// [FIX 1] Use a namespace import for the entire module
 import * as ImageManipulator from "expo-image-manipulator";
 import React, { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -54,7 +53,6 @@ export function CameraView({
       if (photo) {
         let processedPhoto = photo;
         if (camera.facing === "front") {
-          // [FIX 2] Call manipulateAsync and access enums from the namespace
           const manipulatedImage = await ImageManipulator.manipulateAsync(
             photo.uri,
             [{ flip: ImageManipulator.FlipType.Horizontal }],
