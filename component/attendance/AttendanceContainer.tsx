@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Alert, AppState, FlatList, ListRenderItem } from "react-native";
 
+// No direct imports from hooks needed for permission checks here
 import { useGeofence } from "../../hooks/useGeofence";
-import { usePermissions } from "../../hooks/usePermissions";
 import { validationService } from "../../services/attendanceValidationService";
 import {
   getHolidays,
@@ -44,12 +44,12 @@ export function AttendanceContainer() {
     todayAttendanceMarked,
     fetchTodayAttendance,
     userLocationType,
-    isFieldTrip,
     fetchLocationSettings,
   } = useAttendanceStore();
 
   const { isAuthenticated, username } = useAuthStore();
-  const { cameraRef } = usePermissions();
+  // FIX 2: cameraRef is no longer needed here. It's used directly in CameraView.
+  // const { cameraRef } = usePermissions(); 
 
   const [showExpandedMap, setShowExpandedMap] = useState(false);
   const [isMapTouched, setIsMapTouched] = useState(false);
@@ -57,7 +57,9 @@ export function AttendanceContainer() {
   const [holidayInfo, setHolidayInfo] = useState<Holiday | null>(null);
   const [checkingHoliday, setCheckingHoliday] = useState(true);
 
-  const geofence = useGeofence(userLocationType, isFieldTrip);
+  // FIX 1: The useGeofence hook no longer takes isFieldTrip as a parameter.
+  // It gets this value from the attendanceStore internally.
+  const geofence = useGeofence(userLocationType);
 
   useEffect(() => {
     const checkHolidayStatus = async () => {
@@ -129,68 +131,55 @@ export function AttendanceContainer() {
     return () => subscription?.remove();
   }, [isAuthenticated, username, fetchLocationSettings]);
 
-const handleUpload = async () => {
-  const userCoordinates = await geofence.captureLocationForAttendance();
+  const handleUpload = async () => {
+    const userCoordinates = await geofence.captureLocationForAttendance();
 
-  if (!userCoordinates) {
-    return;
-  }
+    if (!userCoordinates) {
+      return;
+    }
 
-  const { department, userLocationType } = useAttendanceStore.getState();
+    const { department, userLocationType } = useAttendanceStore.getState();
 
-  if (!department && userLocationType === "CAMPUS") {
-    Alert.alert(
-      "Error",
-      "Department information not found. Please contact support."
+    if (!department && userLocationType === "CAMPUS") {
+      Alert.alert(
+        "Error",
+        "Department information not found. Please contact support."
+      );
+      return;
+    }
+
+    const validationResult = validationService.validateAttendance(
+      { lat: userCoordinates.latitude, lng: userCoordinates.longitude },
+      department || "",
+      userLocationType
     );
-    return;
-  }
 
-  const validationResult = validationService.validateAttendance(
-    { lat: userCoordinates.latitude, lng: userCoordinates.longitude },
-    department || "",
-    userLocationType
-  );
+    if (!validationResult.isValid) {
+      Alert.alert("Error", validationResult.reason || "Validation failed");
+      return;
+    }
 
-  if (!validationResult.isValid) {
-    Alert.alert("Error", validationResult.reason || "Validation failed");
-    return;
-  }
+    const finalLocation = validationResult.details.userLocation;
 
-  const finalLocation = validationResult.details.userLocation;
+    const { employeeNumber } = useAuthStore.getState();
 
-  const { employeeNumber } = useAuthStore.getState();
+    if (!employeeNumber) {
+      Alert.alert("Error", "Please login to mark attendance");
+      return;
+    }
 
-  if (!employeeNumber) {
-    Alert.alert("Error", "Please login to mark attendance");
-    return;
-  }
-
-  setUploading(true);
-  try {
-    const { uploadAttendanceData } = await import(
-      "../../services/attendanceService"
-    );
-    const result = await uploadAttendanceData({
-      employeeNumber: employeeNumber,
-      photos,
-      audioRecording: audioRecording || undefined,
-      location: finalLocation,
-      latitude: userCoordinates?.latitude,
-      longitude: userCoordinates?.longitude,
-    });
-
-    if (result.success) {
-      const { markAttendance, fetchTodayAttendance } = useAttendanceStore.getState();
+    setUploading(true);
+    try {
+      // The attendance store now handles the upload logic, so we call the action
+      const { markAttendance } = useAttendanceStore.getState();
       await markAttendance(finalLocation, userCoordinates?.latitude, userCoordinates?.longitude);
-      await fetchTodayAttendance();
 
       Alert.alert("Success", "Attendance recorded!", [
         { text: "OK", onPress: resetSession },
       ]);
-    } else {
-      if (result.error === "Session expired. Please login again.") {
-        Alert.alert(
+    } catch (error: any) {
+      if (error.message === 'Session expired') {
+         Alert.alert(
           "Session Expired",
           "Your session has expired. Please login again.",
           [
@@ -203,18 +192,13 @@ const handleUpload = async () => {
           ]
         );
       } else {
-        Alert.alert("Error", result.error ?? "Upload failed");
+         Alert.alert("Error", error.message ?? "Upload failed");
       }
+      console.error("Upload error:", error);
+    } finally {
+      setUploading(false);
     }
-  } catch (error) {
-    console.error("Upload error:", error);
-    Alert.alert("Error", "Upload error");
-  } finally {
-    setUploading(false);
-  }
-};
-
-
+  };
 
   const mapComponent = React.useMemo(
     () => (
@@ -269,11 +253,9 @@ const handleUpload = async () => {
         <CameraView
           currentPhotoIndex={currentPhotoIndex}
           retakeMode={retakeMode}
-          totalPhotos={photos.length}
+          totalPhotos={1} // totalPhotos is now 1
           onPhotoTaken={(photo) => {
-            const next = [...photos];
-            next[currentPhotoIndex] = photo;
-            setPhotos(next);
+            setPhotos([photo]); // Directly set the single photo
             setCurrentView("home");
             setRetakeMode(false);
           }}
@@ -323,7 +305,7 @@ const handleUpload = async () => {
                 onDeleteAudio={() => setAudioRecording(null)}
                 onUpload={handleUpload}
                 uploading={uploading}
-                totalPhotos={photos.length}
+                totalPhotos={1} // totalPhotos is now 1
                 todayAttendanceMarked={todayAttendanceMarked}
               />
             );

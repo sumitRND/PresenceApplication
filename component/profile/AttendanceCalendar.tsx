@@ -1,12 +1,5 @@
 import { brutalistColors, colors } from "@/constants/colors";
 import { attendanceCalendarStyles } from "@/constants/style";
-import {
-  AttendanceDate,
-  AttendanceStatistics,
-  getAttendanceCalendar,
-  getHolidays,
-  Holiday,
-} from "../../services/userServices";
 import { useAttendanceStore } from "@/store/attendanceStore";
 import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
 import { useFocusEffect } from "@react-navigation/native";
@@ -28,6 +21,34 @@ import {
 } from "react-native";
 import { Calendar } from "react-native-calendars";
 import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
+import {
+  getAttendanceCalendar,
+  getHolidays,
+  Holiday
+} from "../../services/userServices";
+interface AttendanceDate {
+  date: string;
+  present: number;
+  absent: number;
+  attendance?: {
+    takenLocation: string | null;
+    checkinTime: string | null;
+    checkoutTime: string | null;
+    sessionType?: 'FN' | 'AF';
+    fullDay: boolean;
+    halfDay: boolean;
+    isCheckout: boolean;
+  };
+}
+
+interface AttendanceStatistics {
+  totalDays: number;
+  totalFullDays: number;
+  totalHalfDays: number;
+  notCheckedOut: number;
+  year: number;
+  month?: number;
+}
 
 
 interface AttendanceCalendarProps {
@@ -48,9 +69,9 @@ export const AttendanceCalendar: React.FC<AttendanceCalendarProps> = ({
 }) => {
   const [loading, setLoading] = useState(true);
   const [attendanceDates, setAttendanceDates] = useState<AttendanceDate[]>([]);
-  const [statistics, setStatistics] = useState<AttendanceStatistics | null>(
-    null,
-  );
+  // FIX 3: Remove the 'statistics' state setter as it's unused
+  const [, setStatistics] = useState<AttendanceStatistics | null>(null);
+  
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -65,179 +86,83 @@ export const AttendanceCalendar: React.FC<AttendanceCalendarProps> = ({
   );
   const { fieldTripDates } = useAttendanceStore();
 
-  // const isWorkingDay = (dateStr: string, holidays: Holiday[]): boolean => {
-  //   const date = new Date(dateStr);
-  //   const dayOfWeek = date.getDay();
-  //   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-  //   const isHoliday = holidays.some((h) => h.date === dateStr);
-  //   return !isWeekend && !isHoliday;
-  // };
+  const fetchAttendanceData = useCallback(
+    async (showLoading = true) => {
+      try {
+        if (showLoading && !isChangingMonth.current) {
+          setLoading(true);
+        }
 
-const fetchAttendanceData = useCallback(
-  async (showLoading = true) => {
-    console.log('🚀 fetchAttendanceData called', {
-      showLoading,
-      isChangingMonth: isChangingMonth.current,
-      employeeCode,
-      selectedYear,
-      selectedMonth,
-      holidaysCount: holidays.length
-    });
-    
-    try {
-      if (showLoading && !isChangingMonth.current) {
-        console.log('⏳ Setting loading to true');
-        setLoading(true);
-      }
-
-      console.log('📡 Calling getAttendanceCalendar...');
-      const startTime = Date.now();
-      
-      const response = await getAttendanceCalendar(
-        employeeCode,
-        selectedYear,
-        selectedMonth,
-      );
-      
-      const responseTime = Date.now() - startTime;
-      console.log(`📊 Response received in ${responseTime}ms:`, {
-        success: response.success,
-        hasData: !!response.data,
-        error: response.error
-      });
-
-      if (response.success && response.data) {
-        const attendances = response.data.attendances;
-        console.log(`✅ Got ${attendances.length} attendance records`);
-
-        // Create a map for quick lookup
-        const attendanceMap = new Map(attendances.map((a) => [a.date, a]));
-        console.log('📍 Attendance map created with dates:', Array.from(attendanceMap.keys()));
-
-        // Calculate days in month
-        const daysInMonth = new Date(
+        const response = await getAttendanceCalendar(
+          employeeCode,
           selectedYear,
           selectedMonth,
-          0,
-        ).getDate();
-        console.log(`📅 Days in month ${selectedMonth}/${selectedYear}: ${daysInMonth}`);
-        
-        const allDatesInMonth: AttendanceDate[] = [];
-        const today = new Date().toISOString().split("T")[0];
-        console.log(`📆 Today's date: ${today}`);
+        );
 
-        let presentCount = 0;
-        let absentCount = 0;
-        let skippedFuture = 0;
-        let skippedWeekendHoliday = 0;
+        if (response.success && response.data) {
+          // FIX 2: Transform the flat API data into the nested structure this component expects.
+          const transformedAttendances: AttendanceDate[] = response.data.attendances.map(att => ({
+            date: att.date.split("T")[0],
+            present: 1,
+            absent: 0,
+            attendance: {
+              takenLocation: att.takenLocation || null,
+              checkinTime: att.checkinTime,
+              checkoutTime: att.checkoutTime || null,
+              sessionType: att.sessionType as 'FN' | 'AF',
+              fullDay: att.attendanceType === "FULL_DAY" || att.autoCompleted === true,
+              halfDay: att.attendanceType === "HALF_DAY",
+              isCheckout: !!att.checkoutTime || att.autoCompleted === true,
+            },
+          }));
 
-        for (let day = 1; day <= daysInMonth; day++) {
-          const dateStr = `${selectedYear}-${String(selectedMonth).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+          const attendanceMap = new Map(transformedAttendances.map(a => [a.date, a]));
+          const daysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
+          const allDatesInMonth: AttendanceDate[] = [];
+          const today = new Date().toISOString().split("T")[0];
 
-          // Skip future dates
-          if (dateStr > today) {
-            skippedFuture++;
-            continue;
-          }
+          for (let day = 1; day <= daysInMonth; day++) {
+            const dateStr = `${selectedYear}-${String(selectedMonth).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+            if (dateStr > today) continue;
 
-          const existingAttendance = attendanceMap.get(dateStr);
-
-          if (existingAttendance) {
-            allDatesInMonth.push(existingAttendance);
-            presentCount++;
-            console.log(`✅ Found attendance for ${dateStr}:`, {
-              checkin: existingAttendance.attendance?.checkinTime,
-              checkout: existingAttendance.attendance?.checkoutTime,
-              isCheckout: existingAttendance.attendance?.isCheckout
-            });
-          } else {
-            const dayOfWeek = new Date(dateStr).getDay();
-            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-            const isHoliday = holidays.some(
-              (h) => h.date.split("T")[0] === dateStr,
-            );
-
-            if (!isWeekend && !isHoliday) {
-              // Mark as absent for working days without attendance
-              allDatesInMonth.push({
-                date: dateStr,
-                present: 0,
-                absent: 1,
-                attendance: undefined,
-              });
-              absentCount++;
-              console.log(`❌ Marked absent for ${dateStr} (working day)`);
+            const existingAttendance = attendanceMap.get(dateStr);
+            if (existingAttendance) {
+              allDatesInMonth.push(existingAttendance);
             } else {
-              skippedWeekendHoliday++;
-              console.log(`⏭️ Skipped ${dateStr}: weekend=${isWeekend}, holiday=${isHoliday}`);
+              const dayOfWeek = new Date(dateStr).getDay();
+              const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+              const isHoliday = holidays.some(h => h.date.split("T")[0] === dateStr);
+              if (!isWeekend && !isHoliday) {
+                allDatesInMonth.push({ date: dateStr, present: 0, absent: 1, attendance: undefined });
+              }
             }
           }
+
+          setAttendanceDates(allDatesInMonth);
+          if (response.data.statistics) {
+            setStatistics(response.data.statistics);
+          }
+          const marked = getMarkedDates(allDatesInMonth, holidays);
+          setMarkedDates(marked);
+        } else {
+          if (!isChangingMonth.current) {
+            Alert.alert("Error", response.error || "Failed to load attendance data");
+          }
         }
-
-        console.log('📊 Attendance summary:', {
-          totalProcessed: allDatesInMonth.length,
-          present: presentCount,
-          absent: absentCount,
-          skippedFuture: skippedFuture,
-          skippedWeekendHoliday: skippedWeekendHoliday
-        });
-
-        setAttendanceDates(allDatesInMonth);
-        console.log('✅ Attendance dates set in state');
-
-        if (response.data.statistics) {
-          setStatistics(response.data.statistics);
-          console.log('📈 Statistics set:', response.data.statistics);
-        }
-
-        // Generate marked dates for calendar
-        console.log('🎨 Generating marked dates...');
-        const marked = getMarkedDates(allDatesInMonth, holidays);
-        setMarkedDates(marked);
-        console.log(`✅ Marked ${Object.keys(marked).length} dates on calendar`);
-        
-        console.log('✅ fetchAttendanceData completed successfully');
-      } else {
-        console.log('❌ Response was not successful:', {
-          success: response.success,
-          error: response.error,
-          hasData: !!response.data
-        });
-        
+      } catch (error: any) {
         if (!isChangingMonth.current) {
-          const errorMessage = response.error || "Failed to load attendance data";
-          console.log('🔔 Showing error alert:', errorMessage);
-          Alert.alert("Error", errorMessage);
+          Alert.alert("Error", "Failed to load attendance data");
         }
+      } finally {
+        if (showLoading && !isChangingMonth.current) {
+          setLoading(false);
+        }
+        isChangingMonth.current = false;
       }
-    } catch (error: any) {
-      console.error("❌ Exception in fetchAttendanceData:", error);
-      console.error('Error type:', error?.constructor?.name);
-      console.error('Error message:', error?.message);
-      console.error('Error stack:', error?.stack);
-      
-      if (!isChangingMonth.current) {
-        console.log('🔔 Showing generic error alert');
-        Alert.alert("Error", "Failed to load attendance data");
-      }
-    } finally {
-      console.log('🏁 Finally block executing', {
-        showLoading,
-        isChangingMonth: isChangingMonth.current,
-        willSetLoadingFalse: showLoading && !isChangingMonth.current,
-      });
-      
-      if (showLoading && !isChangingMonth.current) {
-        console.log('⏸️ Setting loading to false');
-        setLoading(false);
-      }
-      
-      isChangingMonth.current = false;
-      console.log('✅ fetchAttendanceData cleanup complete');
-    }
-  },
-  [employeeCode, selectedYear, selectedMonth],
-);
+    },
+    // FIX 4: Add 'holidays' to the dependency array to satisfy the linter
+    [employeeCode, selectedYear, selectedMonth, holidays],
+  );
 
   useEffect(() => {
     const loadData = async () => {
@@ -247,51 +172,54 @@ const fetchAttendanceData = useCallback(
       try {
         const holidayData = await getHolidays(selectedYear, selectedMonth);
         setHolidays(holidayData);
-        await fetchAttendanceData(false); // Pass false to avoid double loading
+        // We will fetch attendance data after getting holidays inside the useCallback
       } catch (error) {
-        console.error("Error loading data:", error);
-        Alert.alert("Error", "Failed to load holiday or attendance data.");
-      } finally {
-        if (!isChangingMonth.current) {
-          setLoading(false);
-        }
-        isChangingMonth.current = false;
+        console.error("Error loading holiday data:", error);
+        Alert.alert("Error", "Failed to load holiday data.");
+        setLoading(false); // Stop loading if holidays fail
       }
     };
-
     loadData();
-  }, [selectedYear, selectedMonth, fetchAttendanceData]);
+  }, [selectedYear, selectedMonth]);
+
+  // This effect now triggers when holidays are loaded
+  useEffect(() => {
+    if (holidays.length > 0) {
+      fetchAttendanceData(false);
+    }
+  }, [holidays, fetchAttendanceData]);
+
 
   useEffect(() => {
-  const today = new Date().toISOString().split("T")[0];
-  const currentMonth = new Date().getMonth() + 1;
-  const currentYear = new Date().getFullYear();
-  if (selectedMonth === currentMonth && selectedYear === currentYear) {
-    const todayRecord = attendanceRecords.find(
-      (record) => record.date === today,
-    );
-    if (todayRecord || todayAttendanceMarked) {
-      const timeoutId = setTimeout(() => {
-        fetchAttendanceData(); // Remove the 'false' parameter
-      }, 1000);
-      return () => clearTimeout(timeoutId);
+    const today = new Date().toISOString().split("T")[0];
+    const currentMonth = new Date().getMonth() + 1;
+    const currentYear = new Date().getFullYear();
+    if (selectedMonth === currentMonth && selectedYear === currentYear) {
+      const todayRecord = attendanceRecords.find(
+        (record) => record.date === today,
+      );
+      if (todayRecord || todayAttendanceMarked) {
+        const timeoutId = setTimeout(() => {
+          fetchAttendanceData();
+        }, 1000);
+        return () => clearTimeout(timeoutId);
+      }
     }
-  }
-}, [
-  attendanceRecords,
-  todayAttendanceMarked,
-  selectedMonth,
-  selectedYear,
-  fetchAttendanceData,
-]);
+  }, [
+    attendanceRecords,
+    todayAttendanceMarked,
+    selectedMonth,
+    selectedYear,
+    fetchAttendanceData,
+  ]);
 
-useFocusEffect(
-  useCallback(() => {
-    if (holidays.length > 0) {
-      fetchAttendanceData(); // Remove the 'false' parameter
-    }
-  }, [fetchAttendanceData, holidays]),
-);
+  useFocusEffect(
+    useCallback(() => {
+      if (holidays.length > 0) {
+        fetchAttendanceData();
+      }
+    }, [fetchAttendanceData, holidays]),
+  );
 
   const isFieldTrip = useMemo(() => {
     if (!selectedDate || !fieldTripDates || !Array.isArray(fieldTripDates))
@@ -318,6 +246,8 @@ useFocusEffect(
     setSelectedYear(month.year);
   }, []);
 
+  // --- The entire render section of the component can now remain unchanged ---
+  // It will work correctly because we transformed the data to match its expectations.
   const renderSelectedDateInfo = () => {
     if (!selectedDate) return null;
     const attendance = attendanceDates.find((a) => a.date === selectedDate);
@@ -437,7 +367,7 @@ useFocusEffect(
               ]}
             >
               <FontAwesome6
-                name={status.icon}
+                name={status.icon as any} // Using 'as any' to bypass strict FontAwesome6 types
                 size={16}
                 color={brutalistColors.white}
               />
@@ -583,7 +513,7 @@ useFocusEffect(
       </Animated.View>
     );
   };
-
+  
   const getSimplifiedStatistics = () => {
     if (!attendanceDates || attendanceDates.length === 0) {
       return {
@@ -673,9 +603,8 @@ useFocusEffect(
 
     return marked;
   }, [markedDates, fieldTripDates, selectedDate]);
-
-  const calendarTheme = useMemo(
-    () => ({
+  
+  const calendarTheme = useMemo(() => ({
       backgroundColor: brutalistColors.background,
       calendarBackground: brutalistColors.background,
       textSectionTitleColor: brutalistColors.text,
@@ -705,10 +634,8 @@ useFocusEffect(
           paddingBottom: 10,
         },
       },
-    }),
-    [],
-  );
-
+    }), []);
+    
   const renderSimplifiedStatisticsCard = () => {
     return (
       <Animated.View entering={FadeInDown.delay(100).springify()}>
@@ -787,7 +714,7 @@ useFocusEffect(
       </Animated.View>
     );
   };
-
+  
   if (loading) {
     return (
       <View style={attendanceCalendarStyles.loadingContainer}>
@@ -811,99 +738,36 @@ useFocusEffect(
       }
     >
       {renderSimplifiedStatisticsCard()}
-
       <BrutalistCard>
         <Text style={attendanceCalendarStyles.cardTitle}>ATTENDANCE CALENDAR</Text>
         <Calendar
-          current={`${selectedYear}-${String(selectedMonth).padStart(
-            2,
-            "0",
-          )}-01`}
+          current={`${selectedYear}-${String(selectedMonth).padStart(2, "0")}-01`}
           onDayPress={onDayPress}
           onMonthChange={onMonthChange}
           markingType="custom"
           markedDates={enhancedMarkedDates}
           theme={calendarTheme}
           style={attendanceCalendarStyles.calendar}
-          enableSwipeMonths={true}
-          hideExtraDays={false}
-          disableMonthChange={false}
+          enableSwipeMonths
         />
       </BrutalistCard>
-
       {renderSelectedDateInfo()}
-
       <BrutalistCard>
         <Text style={attendanceCalendarStyles.cardTitle}>LEGEND</Text>
         <View style={attendanceCalendarStyles.legendItems}>
-          <View style={attendanceCalendarStyles.legendItem}>
-            <View
-              style={[
-                attendanceCalendarStyles.legendDot,
-                { backgroundColor: brutalistColors.present },
-              ]}
-            />
-            <Text style={attendanceCalendarStyles.legendText}>Present</Text>
-          </View>
-          <View style={attendanceCalendarStyles.legendItem}>
-            <View
-              style={[
-                attendanceCalendarStyles.legendDot,
-                { backgroundColor: brutalistColors.absent },
-              ]}
-            />
-            <Text style={attendanceCalendarStyles.legendText}>Absent</Text>
-          </View>
-          <View style={attendanceCalendarStyles.legendItem}>
-            <View
-              style={[
-                attendanceCalendarStyles.legendDot,
-                { backgroundColor: brutalistColors.inProgress },
-              ]}
-            />
-            <Text style={attendanceCalendarStyles.legendText}>In Progress</Text>
-          </View>
-          <View style={attendanceCalendarStyles.legendItem}>
-            <View
-              style={[
-                attendanceCalendarStyles.legendDot,
-                { backgroundColor: brutalistColors.weekend },
-              ]}
-            />
-            <Text style={attendanceCalendarStyles.legendText}>Weekend</Text>
-          </View>
-          <View style={attendanceCalendarStyles.legendItem}>
-            <View
-              style={[
-                attendanceCalendarStyles.legendDot,
-                { backgroundColor: brutalistColors.holiday },
-              ]}
-            />
-            <Text style={attendanceCalendarStyles.legendText}>Holiday</Text>
-          </View>
-          {fieldTripDates &&
-            Array.isArray(fieldTripDates) &&
-            fieldTripDates.length > 0 && (
-              <View style={attendanceCalendarStyles.legendItem}>
-                <View
-                  style={[
-                    attendanceCalendarStyles.legendDot,
-                    {
-                      backgroundColor: brutalistColors.background,
-                      borderWidth: 3,
-                      borderColor: brutalistColors.fieldTrip,
-                    },
-                  ]}
-                />
-                <Text style={attendanceCalendarStyles.legendText}>Field Trip</Text>
-              </View>
-            )}
+          <View style={attendanceCalendarStyles.legendItem}><View style={[attendanceCalendarStyles.legendDot, { backgroundColor: brutalistColors.present }]} /><Text style={attendanceCalendarStyles.legendText}>Present</Text></View>
+          <View style={attendanceCalendarStyles.legendItem}><View style={[attendanceCalendarStyles.legendDot, { backgroundColor: brutalistColors.absent }]} /><Text style={attendanceCalendarStyles.legendText}>Absent</Text></View>
+          <View style={attendanceCalendarStyles.legendItem}><View style={[attendanceCalendarStyles.legendDot, { backgroundColor: brutalistColors.inProgress }]} /><Text style={attendanceCalendarStyles.legendText}>In Progress</Text></View>
+          <View style={attendanceCalendarStyles.legendItem}><View style={[attendanceCalendarStyles.legendDot, { backgroundColor: brutalistColors.weekend }]} /><Text style={attendanceCalendarStyles.legendText}>Weekend</Text></View>
+          <View style={attendanceCalendarStyles.legendItem}><View style={[attendanceCalendarStyles.legendDot, { backgroundColor: brutalistColors.holiday }]} /><Text style={attendanceCalendarStyles.legendText}>Holiday</Text></View>
+          {fieldTripDates && fieldTripDates.length > 0 && (
+            <View style={attendanceCalendarStyles.legendItem}><View style={[attendanceCalendarStyles.legendDot, { backgroundColor: brutalistColors.background, borderWidth: 3, borderColor: brutalistColors.fieldTrip }]} /><Text style={attendanceCalendarStyles.legendText}>Field Trip</Text></View>
+          )}
         </View>
       </BrutalistCard>
     </ScrollView>
   );
 };
-
 const getMarkedDates = (
   attendanceDates: AttendanceDate[],
   holidays: Holiday[],
@@ -919,29 +783,26 @@ const getMarkedDates = (
     let backgroundColor = "#F87171";
     let textColor = "#1F2937";
 
-if (item.present === 1) {
-  if (item.attendance) {
-    const isAutoCompleted =
-      dateStr === today && currentHour >= 23 && !item.attendance.isCheckout;
+    if (item.present === 1) {
+      if (item.attendance) {
+        const isAutoCompleted =
+          dateStr === today && currentHour >= 23 && !item.attendance.isCheckout;
 
-    if (isAutoCompleted || item.attendance.isCheckout) {  // ✅ FIXED
-      // Show green for ALL checked-out attendance (both full-day and half-day)
-      dotColor = "#10B981";
-      backgroundColor = "#D1FAE5";
-      textColor = "#065F46";
-    } else if (!item.attendance.isCheckout) {
-      // Show yellow for in-progress attendance
-      dotColor = "#F59E0B";
-      backgroundColor = "#FEF3C7";
-      textColor = "#92400E";
-    } else {
-      // Default green color
-      dotColor = "#10B981";
-      backgroundColor = "#D1FAE5";
-      textColor = "#065F46";
+        if (isAutoCompleted || item.attendance.isCheckout) {
+          dotColor = "#10B981";
+          backgroundColor = "#D1FAE5";
+          textColor = "#065F46";
+        } else if (!item.attendance.isCheckout) {
+          dotColor = "#F59E0B";
+          backgroundColor = "#FEF3C7";
+          textColor = "#92400E";
+        } else {
+          dotColor = "#10B981";
+          backgroundColor = "#D1FAE5";
+          textColor = "#065F46";
+        }
+      }
     }
-  }
-}
 
     marked[dateStr] = {
       marked: true,

@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AxiosError } from 'axios';
 import { CameraCapturedPicture } from 'expo-camera';
+import { Platform } from 'react-native';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import api from '../services/api';
@@ -145,10 +147,13 @@ export const useAttendanceStore = create<AttendanceState>()(
 
         try {
           const formData = new FormData();
+          const uploadTimestamp = Date.now(); // 👈 ADD THIS LINE
+
           formData.append('employeeNumber', state.employeeNumber);
           formData.append('username', state.userId || '');
           formData.append('location', location);
           formData.append('locationType', state.userLocationType || 'CAMPUS');
+          formData.append('timestamp', uploadTimestamp.toString()); // 👈 ADD THIS LINE
 
           if (latitude) formData.append('latitude', latitude.toString());
           if (longitude) formData.append('longitude', longitude.toString());
@@ -157,16 +162,21 @@ export const useAttendanceStore = create<AttendanceState>()(
             const photo = {
               uri: state.photos[0].uri,
               type: 'image/jpeg',
-              name: `photo_${Date.now()}.jpg`,
+              name: `photo_${uploadTimestamp}.jpg`, // 👈 Use the new variable
             };
             formData.append('photo', photo as any);
           }
 
           if (state.audioRecording?.uri) {
+            let audioUri = state.audioRecording.uri;
+            if (Platform.OS === 'android' && !audioUri.startsWith('file://')) {
+              audioUri = `file://${audioUri}`;
+            }
+
             const audio = {
-              uri: state.audioRecording.uri,
+              uri: audioUri,
               type: 'audio/m4a',
-              name: `audio_${Date.now()}.m4a`,
+              name: `audio_${uploadTimestamp}.m4a`, // 👈 Use the new variable
             };
             formData.append('audio', audio as any);
 
@@ -278,7 +288,17 @@ export const useAttendanceStore = create<AttendanceState>()(
             });
           }
         } catch (error) {
-          console.error('Error fetching today attendance:', error);
+          const axiosError = error as AxiosError;
+          if (axiosError.response && axiosError.response.status === 404) {
+            console.log("Attendance not found for today (404), setting as not marked.");
+            const today = new Date().toISOString().split('T')[0];
+            set({
+              attendanceRecords: get().attendanceRecords.filter(r => r.date !== today),
+              todayAttendanceMarked: false,
+            });
+          } else {
+            console.error('Error fetching today attendance:', error);
+          }
         }
       },
 

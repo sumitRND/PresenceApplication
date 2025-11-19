@@ -1,12 +1,10 @@
 import { attendanceAudioRecorderStyles } from "@/constants/style";
 import { usePermissions } from "@/hooks/usePermissions";
 import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
-import { AudioModule, useAudioPlayer, useAudioRecorder } from "expo-audio";
+import { RecordingPresets, useAudioPlayer, useAudioRecorder, useAudioRecorderState } from "expo-audio";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Dimensions, Pressable, ScrollView, Text, View, ViewStyle } from "react-native";
-import Animated, {
-  ZoomIn
-} from "react-native-reanimated";
+import Animated, { ZoomIn } from "react-native-reanimated";
 import { AudioRecording } from "../../types/attendance";
 
 interface AudioRecorderProps {
@@ -25,7 +23,11 @@ export function AudioRecorder({
   onRecordingComplete,
 }: AudioRecorderProps) {
   const { requestAudioPermission } = usePermissions();
-  const audioRecorder = useAudioRecorder();
+  const audioRecorder = useAudioRecorder({
+    ...RecordingPresets.HIGH_QUALITY,
+    isMeteringEnabled: true,
+  });
+  const recorderState = useAudioRecorderState(audioRecorder, 100);
   const audioPlayer = useAudioPlayer();
   const [waveformData, setWaveformData] = useState<number[]>([]);
   const [hasRecording, setHasRecording] = useState(false);
@@ -33,6 +35,7 @@ export function AudioRecorder({
   const [recordingDuration, setRecordingDuration] = useState(0);
 
   const scrollViewRef = useRef<ScrollView>(null);
+  const isInitialMount = useRef(true);
 
   const getFormattedDate = () => {
     const today = new Date();
@@ -64,66 +67,74 @@ export function AudioRecorder({
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const handleRetake = () => {
+    setHasRecording(false);
+    setWaveformData([]);
+    setRecordingDuration(0);
+    setPlaybackProgress(0);
+  };
+
+  useEffect(() => {
+    handleRetake();
+  }, []);
+
   useEffect(() => {
     const interval = setInterval(() => {
       if (audioPlayer.playing) {
-        setPlaybackProgress(audioPlayer.currentTime / audioPlayer.duration);
+        const duration = audioPlayer.duration > 0 ? audioPlayer.duration : 1;
+        setPlaybackProgress(audioPlayer.currentTime / duration);
       }
     }, 100);
     return () => clearInterval(interval);
   }, [audioPlayer.playing, audioPlayer.currentTime, audioPlayer.duration]);
 
   useEffect(() => {
-    if (audioRecorder.isRecording) {
-      const interval = setInterval(() => {
-        const amplitude = Math.random() * 60;
-        setWaveformData((prev) => [...prev, amplitude]);
-      }, 100);
-      return () => clearInterval(interval);
+    if (recorderState.isRecording && recorderState.metering !== undefined) {
+      const normalized = Math.max(0, (recorderState.metering + 160) / 160);
+      const amplitude = normalized * 60;
+      setWaveformData((prev) => [...prev, amplitude]);
     }
-  }, [audioRecorder.isRecording]);
+  }, [recorderState]);
 
   useEffect(() => {
-    if (audioRecorder.isRecording) {
+    if (recorderState.isRecording) {
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }
-  }, [waveformData.length, audioRecorder.isRecording]);
+  }, [waveformData.length, recorderState.isRecording]);
 
   useEffect(() => {
     let durationInterval: number | null = null;
-    if (audioRecorder.isRecording) {
+    if (recorderState.isRecording) {
       const startTime = Date.now();
       durationInterval = setInterval(() => {
         const elapsed = (Date.now() - startTime) / 1000;
         setRecordingDuration(elapsed);
       }, 100);
-    } else {
-      if (durationInterval) {
-        clearInterval(durationInterval);
-      }
     }
     return () => {
       if (durationInterval) {
         clearInterval(durationInterval);
       }
     };
-  }, [audioRecorder.isRecording]);
+  }, [recorderState.isRecording]);
 
   useEffect(() => {
-    if (!audioRecorder.isRecording && audioRecorder.uri) {
-      setHasRecording(true);
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+    } else {
+      if (!recorderState.isRecording && audioRecorder.uri) {
+        setHasRecording(true);
+      }
     }
-  }, [audioRecorder.isRecording, audioRecorder.uri]);
+  }, [recorderState.isRecording, audioRecorder.uri]);
 
   const handleStartRecording = async () => {
     const hasPermission = await requestAudioPermission();
     if (!hasPermission) return;
 
     try {
-      setWaveformData([]);
-      setHasRecording(false);
-      setRecordingDuration(0);
-      setPlaybackProgress(0);
+      handleRetake();
+      await audioRecorder.prepareToRecordAsync();
       await audioRecorder.record();
     } catch (error) {
       console.log("Recording start error:", error);
@@ -147,15 +158,6 @@ export function AudioRecorder({
     } catch (error) {
       console.log("Playback error:", error);
     }
-  };
-
-  const handleRetake = () => {
-    setHasRecording(false);
-    setWaveformData([]);
-    setRecordingDuration(0);
-    setPlaybackProgress(0);
-    // The hook does not provide a reset method, so we can't reset it.
-    // The user will have to re-record to start over.
   };
 
   const handleComplete = () => {
@@ -206,7 +208,7 @@ export function AudioRecorder({
                     height: Math.max(amplitude, 4),
                     width: 3,
                     borderRadius: 2,
-                    backgroundColor: audioRecorder.isRecording
+                    backgroundColor: recorderState.isRecording
                       ? "#FF3B30"
                       : audioPlayer.playing
                       ? "#007AFF"
@@ -235,11 +237,11 @@ export function AudioRecorder({
         </View>
 
         <View style={attendanceAudioRecorderStyles.statusIndicator}>
-          {audioRecorder.isRecording && (
+          {recorderState.isRecording && (
             <Animated.View style={attendanceAudioRecorderStyles.recordingDot} />
           )}
           <Text style={attendanceAudioRecorderStyles.statusText}>
-            {audioRecorder.isRecording
+            {recorderState.isRecording
               ? `Recording...`
               : hasRecording
               ? "Recording Complete"
@@ -252,19 +254,19 @@ export function AudioRecorder({
         {!hasRecording ? (
           <Pressable
             onPress={
-              audioRecorder.isRecording
+              recorderState.isRecording
                 ? handleStopRecording
                 : handleStartRecording
             }
             style={[
               attendanceAudioRecorderStyles.controlButtonBase,
-              audioRecorder.isRecording
+              recorderState.isRecording
                 ? attendanceAudioRecorderStyles.stopButton
                 : attendanceAudioRecorderStyles.recordButton,
             ]}
           >
             <FontAwesome6
-              name={audioRecorder.isRecording ? "stop" : "microphone"}
+              name={recorderState.isRecording ? "stop" : "microphone"}
               size={24}
               color="white"
             />
