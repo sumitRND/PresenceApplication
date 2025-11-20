@@ -74,7 +74,12 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location."
+          "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location.",
+                    "foregroundService": {
+            "notificationTitle": "Attendance App is active",
+            "notificationBody": "Using your location to verify attendance.",
+            "notificationColor": "#ffffff"
+          }
         }
       ]
     ],

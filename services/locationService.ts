@@ -1,5 +1,3 @@
-// services/locationService.ts
-
 import { LatLng } from '@/types/geofence';
 import * as IntentLauncher from 'expo-intent-launcher';
 import * as Location from 'expo-location';
@@ -136,93 +134,65 @@ class LocationService extends SimpleEventEmitter {
     return status === 'granted';
   }
 
-  async getCurrentLocation(): Promise<LocationCoordinates | null> {
-    if (this.currentLocation && Date.now() - this.lastUpdateTime < this.config.maxAge!) {
-      return this.currentLocation;
-    }
+async getCurrentLocation(): Promise<LocationCoordinates | null> {
+  try {
+    const location = await Location.getCurrentPositionAsync({
+      accuracy: this.config.enableHighAccuracy
+        ? Location.LocationAccuracy.High
+        : Location.LocationAccuracy.Balanced,
+    });
+
+    this.currentLocation = {
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude,
+      accuracy: location.coords.accuracy || undefined,
+      timestamp: new Date(location.timestamp),
+    };
+    this.lastUpdateTime = Date.now();
+    this.emit('locationUpdate', this.currentLocation);
+    return this.currentLocation;
+
+  } catch (error) {
+    console.warn("Couldn't get a fresh location, will try fallbacks.", error);
 
     try {
-      const highAccuracyPromise = Location.getCurrentPositionAsync({
-        accuracy: this.config.enableHighAccuracy
-          ? Location.Accuracy.High
-          : Location.Accuracy.Balanced,
+      const lastKnown = await Location.getLastKnownPositionAsync({
+        maxAge: this.config.maxAge!,
+        requiredAccuracy: this.config.requiredAccuracy!,
       });
 
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Location request timed out')), 10000)
-      );
-
-      const location = await Promise.race([highAccuracyPromise, timeoutPromise]);
-
-      this.currentLocation = {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        accuracy: location.coords.accuracy || undefined,
-        timestamp: new Date(location.timestamp),
-      };
-
-      this.lastUpdateTime = Date.now();
-      this.emit('locationUpdate', this.currentLocation);
-      return this.currentLocation;
-    } catch (error) {
-      console.warn('High accuracy location failed, trying lower accuracy:', error);
-
-      try {
-        const location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Low,
-        });
-
+      if (lastKnown) {
         this.currentLocation = {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-          accuracy: location.coords.accuracy || undefined,
-          timestamp: new Date(location.timestamp),
+          latitude: lastKnown.coords.latitude,
+          longitude: lastKnown.coords.longitude,
+          accuracy: lastKnown.coords.accuracy || undefined,
+          timestamp: new Date(lastKnown.timestamp),
         };
+
+        Alert.alert(
+          "Using Recent Location",
+          "Unable to get a live GPS signal. Using your most recent location.",
+          [{ text: "OK" }]
+        );
 
         this.lastUpdateTime = Date.now();
         this.emit('locationUpdate', this.currentLocation);
         return this.currentLocation;
-      } catch (lowAccuracyError) {
-        console.error('Failed to get current location with any accuracy:', lowAccuracyError);
-
-        try {
-          const lastKnown = await Location.getLastKnownPositionAsync({
-            maxAge: this.config.maxAge!,
-            requiredAccuracy: this.config.requiredAccuracy!,
-          });
-
-          if (lastKnown) {
-            this.currentLocation = {
-              latitude: lastKnown.coords.latitude,
-              longitude: lastKnown.coords.longitude,
-              accuracy: lastKnown.coords.accuracy || undefined,
-              timestamp: new Date(lastKnown.timestamp),
-            };
-
-            Alert.alert(
-              'Using Last Known Location',
-              'Unable to get current location. Using last known location.',
-              [{ text: 'OK' }]
-            );
-
-            this.lastUpdateTime = Date.now();
-            this.emit('locationUpdate', this.currentLocation);
-            return this.currentLocation;
-          }
-        } catch (e) {
-          console.error('Last known location also failed:', e);
-        }
-
-        Alert.alert(
-          'Location Error',
-          'Unable to determine your location. Please ensure GPS is enabled and you have a clear signal.',
-          [{ text: 'OK' }]
-        );
-
-        return null;
       }
+    } catch (lastKnownError) {
+      console.error("Getting last known location also failed:", lastKnownError);
     }
+
+    Alert.alert(
+      'Location Error',
+      'Unable to determine your location. Please ensure GPS is enabled and you have a clear signal.',
+      [{ text: 'OK' }]
+    );
+
+    return null;
   }
+}
+
 
   async startWatching(callback?: (location: LocationCoordinates) => void): Promise<boolean> {
     if (this.isWatching) return true;
@@ -234,8 +204,8 @@ class LocationService extends SimpleEventEmitter {
       this.watchSubscription = await Location.watchPositionAsync(
         {
           accuracy: this.config.enableHighAccuracy
-            ? Location.Accuracy.High
-            : Location.Accuracy.Balanced,
+            ? Location.LocationAccuracy.High
+            : Location.LocationAccuracy.Balanced,
           timeInterval: this.config.updateInterval,
           distanceInterval: this.config.distanceInterval,
         },
