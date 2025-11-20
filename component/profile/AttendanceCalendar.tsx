@@ -11,7 +11,6 @@ import React, {
   useState,
 } from "react";
 import {
-  ActivityIndicator,
   Alert,
   RefreshControl,
   ScrollView,
@@ -26,6 +25,7 @@ import {
   getHolidays,
   Holiday
 } from "../../services/userServices";
+import { BrutalistLoading } from "../ui/BrutalistLoadingAndError";
 interface AttendanceDate {
   date: string;
   present: number;
@@ -71,7 +71,7 @@ export const AttendanceCalendar: React.FC<AttendanceCalendarProps> = ({
   const [attendanceDates, setAttendanceDates] = useState<AttendanceDate[]>([]);
   // FIX 3: Remove the 'statistics' state setter as it's unused
   const [, setStatistics] = useState<AttendanceStatistics | null>(null);
-  
+
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -513,7 +513,7 @@ export const AttendanceCalendar: React.FC<AttendanceCalendarProps> = ({
       </Animated.View>
     );
   };
-  
+
   const getSimplifiedStatistics = () => {
     if (!attendanceDates || attendanceDates.length === 0) {
       return {
@@ -603,39 +603,39 @@ export const AttendanceCalendar: React.FC<AttendanceCalendarProps> = ({
 
     return marked;
   }, [markedDates, fieldTripDates, selectedDate]);
-  
+
   const calendarTheme = useMemo(() => ({
-      backgroundColor: brutalistColors.background,
-      calendarBackground: brutalistColors.background,
-      textSectionTitleColor: brutalistColors.text,
-      selectedDayBackgroundColor: brutalistColors.primary,
-      selectedDayTextColor: brutalistColors.white,
-      todayTextColor: brutalistColors.primary,
-      dayTextColor: brutalistColors.text,
-      textDisabledColor: brutalistColors.disabled,
-      dotColor: brutalistColors.present,
-      selectedDotColor: brutalistColors.white,
-      arrowColor: brutalistColors.primary,
-      monthTextColor: brutalistColors.text,
-      indicatorColor: brutalistColors.primary,
-      textDayFontWeight: "600" as const,
-      textMonthFontWeight: "900" as const,
-      textDayHeaderFontWeight: "700" as const,
-      textDayFontSize: 16,
-      textMonthFontSize: 20,
-      textDayHeaderFontSize: 14,
-      "stylesheet.calendar.header": {
-        week: {
-          marginTop: 10,
-          flexDirection: "row",
-          justifyContent: "space-between",
-          borderBottomWidth: 3,
-          borderColor: brutalistColors.border,
-          paddingBottom: 10,
-        },
+    backgroundColor: brutalistColors.background,
+    calendarBackground: brutalistColors.background,
+    textSectionTitleColor: brutalistColors.text,
+    selectedDayBackgroundColor: brutalistColors.primary,
+    selectedDayTextColor: brutalistColors.white,
+    todayTextColor: brutalistColors.primary,
+    dayTextColor: brutalistColors.text,
+    textDisabledColor: brutalistColors.disabled,
+    dotColor: brutalistColors.present,
+    selectedDotColor: brutalistColors.white,
+    arrowColor: brutalistColors.primary,
+    monthTextColor: brutalistColors.text,
+    indicatorColor: brutalistColors.primary,
+    textDayFontWeight: "600" as const,
+    textMonthFontWeight: "900" as const,
+    textDayHeaderFontWeight: "700" as const,
+    textDayFontSize: 16,
+    textMonthFontSize: 20,
+    textDayHeaderFontSize: 14,
+    "stylesheet.calendar.header": {
+      week: {
+        marginTop: 10,
+        flexDirection: "row",
+        justifyContent: "space-between",
+        borderBottomWidth: 3,
+        borderColor: brutalistColors.border,
+        paddingBottom: 10,
       },
-    }), []);
-    
+    },
+  }), []);
+
   const renderSimplifiedStatisticsCard = () => {
     return (
       <Animated.View entering={FadeInDown.delay(100).springify()}>
@@ -714,13 +714,14 @@ export const AttendanceCalendar: React.FC<AttendanceCalendarProps> = ({
       </Animated.View>
     );
   };
-  
+
   if (loading) {
     return (
-      <View style={attendanceCalendarStyles.loadingContainer}>
-        <ActivityIndicator size="large" color={brutalistColors.primary} />
-        <Text style={attendanceCalendarStyles.loadingText}>Loading attendance data...</Text>
-      </View>
+      <BrutalistLoading
+        text="LOADING ATTENDANCE..."
+        subtext="Fetching calendar data"
+        size="small"
+      />
     );
   }
 

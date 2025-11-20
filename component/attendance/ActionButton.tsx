@@ -1,15 +1,16 @@
-import { brutalistColors, colors } from "@/constants/colors";
+import { colors } from "@/constants/colors";
 import { actionButtonStyles } from "@/constants/style";
 import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
 import { CameraCapturedPicture } from "expo-camera";
 import React from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
 } from "react-native-reanimated";
 import { AudioRecording } from "../../types/attendance";
+import { InlineLoading } from "../ui/BrutalistLoadingAndError";
 
 interface ActionButtonsProps {
   photos: CameraCapturedPicture[];
@@ -53,12 +54,7 @@ export function ActionButtons({
   if (!canSubmit && isComplete) {
     return (
       <View style={actionButtonStyles.container}>
-        <View style={actionButtonStyles.loadingContainer}>
-          <ActivityIndicator size="small" color={brutalistColors.black} />
-          <Text style={actionButtonStyles.loadingText}>
-            Verifying location...
-          </Text>
-        </View>
+        <InlineLoading text="Verifying location..." />
       </View>
     );
   }

@@ -6,6 +6,7 @@ import { ActivityIndicator, Alert, ScrollView, Text, TouchableOpacity, View } fr
 import { getUserAvatar, saveUserAvatar } from '../../services/avatarStorageService';
 import { getUserProfile } from '../../services/userServices';
 import { useAuthStore } from '../../store/authStore';
+import { BrutalistError, BrutalistLoading } from '../ui/BrutalistLoadingAndError';
 import { AttendanceCalendar } from './AttendanceCalendar';
 import { AvatarDisplay } from './AvatarDisplay';
 import { AvatarPicker } from './AvatarPicker';
@@ -17,6 +18,7 @@ export const ProfileContainer: React.FC = () => {
   const [profile, setProfile] = useState<any>(null);
   const [updating, setUpdating] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
 
@@ -24,20 +26,25 @@ export const ProfileContainer: React.FC = () => {
     const { employeeNumber } = useAuthStore.getState();
     if (employeeNumber) {
       setLoading(true);
+      setError(null);
       try {
         const response = await getUserProfile(employeeNumber);
-        if (response.success) {
-          // Load avatar from AsyncStorage
+
+        if (response.success && response.data) {
+
           const savedAvatar = await getUserAvatar(employeeNumber);
-          
+
           setProfile({
             ...response.data,
+
             avatar: savedAvatar || response.data.avatar,
           });
+        } else {
+          setError(response.error || 'Failed to load profile');
         }
       } catch (error) {
         console.error('Error fetching profile:', error);
-        Alert.alert('Error', 'Failed to load profile. Please try again.');
+        setError('Failed to load profile. Please try again.');
       } finally {
         setLoading(false);
       }
@@ -45,7 +52,9 @@ export const ProfileContainer: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchProfile();
+    if (employeeNumber) {
+      fetchProfile();
+    }
   }, [employeeNumber]);
 
   const handleAvatarSelect = async (avatarData: {
@@ -61,14 +70,14 @@ export const ProfileContainer: React.FC = () => {
     setUpdating(true);
     try {
       const saved = await saveUserAvatar(employeeNumber, avatarData);
-      
+
       if (saved) {
-        // Update local profile state
+
         setProfile((prev: any) => ({
           ...prev,
           avatar: avatarData,
         }));
-        
+
         Alert.alert('Success', 'Avatar updated successfully!');
       } else {
         Alert.alert('Error', 'Failed to save avatar. Please try again.');
@@ -81,46 +90,30 @@ export const ProfileContainer: React.FC = () => {
     }
   };
 
-  // Loading state with neobrutalism design
+
   if (loading) {
     return (
-      <View style={profileContainerStyles.loadingContainer}>
-        <View style={profileContainerStyles.loadingCard}>
-          <ActivityIndicator size="large" color={brutalistColors.black} />
-          <Text style={profileContainerStyles.loadingText}>LOADING PROFILE...</Text>
-          <Text style={{
-            marginTop: 8,
-            fontSize: 12,
-            color: brutalistColors.gray,
-            fontWeight: '600',
-          }}>
-            Please wait
-          </Text>
-        </View>
-      </View>
+      <BrutalistLoading
+        text="LOADING PROFILE..."
+        subtext="Please wait"
+      />
     );
   }
 
-  if (!profile) {
+
+  if (error || !profile) {
     return (
-      <View style={profileContainerStyles.errorContainer}>
-        <View style={profileContainerStyles.errorCard}>
-          <FontAwesome6 name="exclamation-triangle" size={48} color={brutalistColors.error} />
-          <Text style={profileContainerStyles.errorTitle}>PROFILE NOT FOUND</Text>
-          <Text style={profileContainerStyles.errorText}>Unable to load your profile data</Text>
-          <TouchableOpacity 
-            style={profileContainerStyles.retryButton}
-            onPress={fetchProfile}
-          >
-            <FontAwesome6 name="arrows-rotate" size={16} color={brutalistColors.black} />
-            <Text style={profileContainerStyles.retryButtonText}>RETRY</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+      <BrutalistError
+        title="PROFILE ERROR"
+        message={error || 'Unable to load your profile data'}
+        icon="exclamation-triangle"
+        onRetry={fetchProfile}
+        retryText="RETRY"
+      />
     );
   }
 
-  // Get department from projects
+
   const department = projects.length > 0 ? projects[0].department : 'Not Assigned';
 
   return (
@@ -150,7 +143,7 @@ export const ProfileContainer: React.FC = () => {
               )}
             </View>
           </TouchableOpacity>
-          
+
           {updating && (
             <View style={{
               marginTop: 12,
@@ -169,14 +162,14 @@ export const ProfileContainer: React.FC = () => {
               </Text>
             </View>
           )}
-          
+
           <View style={profileContainerStyles.text}>
             <Text style={profileContainerStyles.usernameText}>{profile.username}</Text>
           </View>
         </View>
 
         {/* Attendance Calendar Toggle */}
-        <TouchableOpacity 
+        <TouchableOpacity
           style={profileContainerStyles.attendanceCard}
           onPress={() => setShowCalendar(!showCalendar)}
           activeOpacity={0.8}
@@ -191,10 +184,10 @@ export const ProfileContainer: React.FC = () => {
                 </Text>
               </View>
             </View>
-            <FontAwesome6 
-              name={showCalendar ? "chevron-up" : "chevron-down"} 
-              size={14} 
-              color="#000" 
+            <FontAwesome6
+              name={showCalendar ? "chevron-up" : "chevron-down"}
+              size={14}
+              color="#000"
             />
           </View>
         </TouchableOpacity>
@@ -209,32 +202,32 @@ export const ProfileContainer: React.FC = () => {
         {/* Profile Fields Card */}
         <View style={profileContainerStyles.card}>
           <Text style={profileContainerStyles.cardTitle}>PERSONAL INFORMATION</Text>
-          
-          <ProfileField 
-            label="USERNAME" 
-            value={profile.username} 
-            isReadOnly 
+
+          <ProfileField
+            label="USERNAME"
+            value={profile.username}
+            isReadOnly
             icon="user"
           />
-          
-          <ProfileField 
-            label="EMPLOYEE NUMBER" 
-            value={profile.employeeNumber} 
-            isReadOnly 
+
+          <ProfileField
+            label="EMPLOYEE NUMBER"
+            value={profile.employeeNumber}
+            isReadOnly
             icon="id-card"
           />
 
-          <ProfileField 
-            label="EMPLOYEE CLASS" 
-            value={profile.empClass || 'PJ'} 
-            isReadOnly 
+          <ProfileField
+            label="EMPLOYEE CLASS"
+            value={profile.empClass || 'PJ'}
+            isReadOnly
             icon="briefcase"
           />
 
-          <ProfileField 
-            label="DEPARTMENT" 
-            value={department} 
-            isReadOnly 
+          <ProfileField
+            label="DEPARTMENT"
+            value={department}
+            isReadOnly
             icon="building"
           />
 
@@ -251,7 +244,7 @@ export const ProfileContainer: React.FC = () => {
             </View>
           )}
         </View>
-        
+
         <LogoutButton disabled={updating} />
 
         {/* Avatar Picker Modal */}

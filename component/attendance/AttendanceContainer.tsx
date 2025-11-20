@@ -1,13 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { Alert, AppState, FlatList, ListRenderItem } from "react-native";
 
-// No direct imports from hooks needed for permission checks here
 import { useGeofence } from "../../hooks/useGeofence";
 import { validationService } from "../../services/attendanceValidationService";
-import {
-  getHolidays,
-  Holiday,
-} from "../../services/userServices";
+import { getHolidays, Holiday } from "../../services/userServices";
 import { useAttendanceStore } from "../../store/attendanceStore";
 import { useAuthStore } from "../../store/authStore";
 
@@ -17,9 +13,10 @@ import { CameraView } from "../camera/CameraView";
 import { ExpandedMapView } from "../map/ExpandedMapView";
 import { GeofenceMap } from "../map/GeofenceMap";
 import { MapCard } from "../map/MapCard";
-import { LoadingScreen } from "../ui/LoadingScreen";
 import { HolidayScreen } from "./HolidayScreen";
 import { HomeView } from "./HomeView";
+
+import { BrutalistLoading } from "../ui/BrutalistLoadingAndError";
 
 type ListItem = { id: string; type: "map" | "attendance" };
 
@@ -48,8 +45,6 @@ export function AttendanceContainer() {
   } = useAttendanceStore();
 
   const { isAuthenticated, username } = useAuthStore();
-  // FIX 2: cameraRef is no longer needed here. It's used directly in CameraView.
-  // const { cameraRef } = usePermissions(); 
 
   const [showExpandedMap, setShowExpandedMap] = useState(false);
   const [isMapTouched, setIsMapTouched] = useState(false);
@@ -57,8 +52,6 @@ export function AttendanceContainer() {
   const [holidayInfo, setHolidayInfo] = useState<Holiday | null>(null);
   const [checkingHoliday, setCheckingHoliday] = useState(true);
 
-  // FIX 1: The useGeofence hook no longer takes isFieldTrip as a parameter.
-  // It gets this value from the attendanceStore internally.
   const geofence = useGeofence(userLocationType);
 
   useEffect(() => {
@@ -93,8 +86,7 @@ export function AttendanceContainer() {
           setIsHoliday(false);
           setHolidayInfo(null);
         }
-      } catch (error) {
-        console.error("Error checking holiday status:", error);
+      } catch {
         setIsHoliday(false);
         setHolidayInfo(null);
       } finally {
@@ -108,9 +100,7 @@ export function AttendanceContainer() {
   }, [isAuthenticated, username]);
 
   useEffect(() => {
-    if (isAuthenticated && username && !isInitialized) {
-      // Assuming initializeWithUser is called on login
-    }
+    if (isAuthenticated && username && !isInitialized) {}
   }, [isAuthenticated, username, isInitialized]);
 
   useEffect(() => {
@@ -122,8 +112,8 @@ export function AttendanceContainer() {
   }, [fetchTodayAttendance]);
 
   useEffect(() => {
-    const subscription = AppState.addEventListener("change", (nextAppState) => {
-      if (nextAppState === "active" && isAuthenticated && username) {
+    const subscription = AppState.addEventListener("change", (next) => {
+      if (next === "active" && isAuthenticated && username) {
         fetchLocationSettings();
       }
     });
@@ -133,18 +123,12 @@ export function AttendanceContainer() {
 
   const handleUpload = async () => {
     const userCoordinates = await geofence.captureLocationForAttendance();
-
-    if (!userCoordinates) {
-      return;
-    }
+    if (!userCoordinates) return;
 
     const { department, userLocationType } = useAttendanceStore.getState();
 
     if (!department && userLocationType === "CAMPUS") {
-      Alert.alert(
-        "Error",
-        "Department information not found. Please contact support."
-      );
+      Alert.alert("Error", "Department information not found. Please contact support.");
       return;
     }
 
@@ -160,7 +144,6 @@ export function AttendanceContainer() {
     }
 
     const finalLocation = validationResult.details.userLocation;
-
     const { employeeNumber } = useAuthStore.getState();
 
     if (!employeeNumber) {
@@ -170,31 +153,20 @@ export function AttendanceContainer() {
 
     setUploading(true);
     try {
-      // The attendance store now handles the upload logic, so we call the action
       const { markAttendance } = useAttendanceStore.getState();
-      await markAttendance(finalLocation, userCoordinates?.latitude, userCoordinates?.longitude);
+      await markAttendance(finalLocation, userCoordinates.latitude, userCoordinates.longitude);
 
       Alert.alert("Success", "Attendance recorded!", [
         { text: "OK", onPress: resetSession },
       ]);
     } catch (error: any) {
-      if (error.message === 'Session expired') {
-         Alert.alert(
-          "Session Expired",
-          "Your session has expired. Please login again.",
-          [
-            {
-              text: "OK",
-              onPress: () => {
-                useAuthStore.getState().signOut();
-              },
-            },
-          ]
-        );
+      if (error.message === "Session expired") {
+        Alert.alert("Session Expired", "Your session has expired. Please login again.", [
+          { text: "OK", onPress: () => useAuthStore.getState().signOut() },
+        ]);
       } else {
-         Alert.alert("Error", error.message ?? "Upload failed");
+        Alert.alert("Error", error.message ?? "Upload failed");
       }
-      console.error("Upload error:", error);
     } finally {
       setUploading(false);
     }
@@ -216,26 +188,40 @@ export function AttendanceContainer() {
     [geofence]
   );
 
-  if (isLoading || checkingHoliday)
-    return <LoadingScreen text="Loading..." />;
-  if (isInitialized && !employeeNumber)
+  if (isLoading || checkingHoliday) {
+    return <BrutalistLoading text="LOADING..." />;
+  }
+
+  if (isInitialized && !employeeNumber) {
     return (
-      <LoadingScreen text="Please login to continue" subtext="Redirecting..." />
+      <BrutalistLoading
+        text="PLEASE LOGIN"
+        subtext="Redirecting to login..."
+      />
     );
-  if (uploading)
-    return <LoadingScreen text="Uploading..." subtext="Please wait" />;
+  }
+
+  if (uploading) {
+    return (
+      <BrutalistLoading
+        text="UPLOADING ATTENDANCE..."
+        subtext="Please wait, this may take a moment"
+      />
+    );
+  }
 
   if (isHoliday && holidayInfo) {
     return <HolidayScreen holidayInfo={holidayInfo} />;
   }
 
-  if (showExpandedMap)
+  if (showExpandedMap) {
     return (
       <ExpandedMapView
         onClose={() => setShowExpandedMap(false)}
         mapComponent={mapComponent}
       />
     );
+  }
 
   switch (currentView) {
     case "audioRecorder":
@@ -248,14 +234,15 @@ export function AttendanceContainer() {
           }}
         />
       );
+
     case "camera":
       return (
         <CameraView
           currentPhotoIndex={currentPhotoIndex}
           retakeMode={retakeMode}
-          totalPhotos={1} // totalPhotos is now 1
+          totalPhotos={1}
           onPhotoTaken={(photo) => {
-            setPhotos([photo]); // Directly set the single photo
+            setPhotos([photo]);
             setCurrentView("home");
             setRetakeMode(false);
           }}
@@ -265,6 +252,7 @@ export function AttendanceContainer() {
           }}
         />
       );
+
     default:
       const data: ListItem[] = [
         { id: "map", type: "map" },
@@ -282,6 +270,7 @@ export function AttendanceContainer() {
                 onMapTouchEnd={() => setIsMapTouched(false)}
               />
             );
+
           case "attendance":
             return (
               <HomeView
@@ -305,10 +294,11 @@ export function AttendanceContainer() {
                 onDeleteAudio={() => setAudioRecording(null)}
                 onUpload={handleUpload}
                 uploading={uploading}
-                totalPhotos={1} // totalPhotos is now 1
+                totalPhotos={1}
                 todayAttendanceMarked={todayAttendanceMarked}
               />
             );
+
           default:
             return null;
         }

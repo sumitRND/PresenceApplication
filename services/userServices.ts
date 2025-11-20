@@ -54,6 +54,11 @@ export interface ProfileData {
   username: string;
   empClass: string;
   dateOfResign?: string | null;
+  avatar?: {
+    style: string;
+    seed: string;
+    url: string;
+  };
 }
 
 export interface ProfileResponse {
