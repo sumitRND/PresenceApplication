@@ -28,7 +28,7 @@ export function AudioPlayer({
 
   return (
     <View style={audioStyles.preview}>
-      <FontAwesome6 name="volume-high" size={24} color="#000" />
+      <FontAwesome6 name="volume-high" size={36} color="#000" />
       <Text style={audioStyles.previewText}>Audio Recorded</Text>
       <AudioControls
         isPlaying={audio.isPlaying}

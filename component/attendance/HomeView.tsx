@@ -4,7 +4,7 @@ import { useGeofence } from "@/hooks/useGeofence";
 import { useAuthStore } from "@/store/authStore";
 import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
 import { CameraCapturedPicture } from "expo-camera";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -444,6 +444,9 @@ export function HomeView({
   const geofence = useGeofence(userLocationType);
   const [validationStatus, setValidationStatus] =
     useState<ValidationResult | null>(null);
+  
+  // Add scroll ref for auto-scrolling to top
+  const scrollViewRef = useRef<ScrollView>(null);
 
   useEffect(() => {
     const checkValidation = () => {
@@ -513,6 +516,10 @@ export function HomeView({
         },
       ],
     );
+  };
+
+  const handleScrollToTop = () => {
+    scrollViewRef.current?.scrollTo({ y: 0, animated: true });
   };
 
   const formatTime = (timeString: string | null) => {
@@ -638,7 +645,11 @@ export function HomeView({
   }
 
   return (
-    <ScrollView style={homeViewStyles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView 
+      ref={scrollViewRef}
+      style={homeViewStyles.container} 
+      showsVerticalScrollIndicator={false}
+    >
       <Animated.View
         entering={FadeInDown.delay(100).springify()}
         style={homeViewStyles.headerCard}
@@ -764,6 +775,8 @@ export function HomeView({
           uploading={uploading}
           totalPhotos={totalPhotos}
           canSubmit={validationStatus?.isValid || false}
+          validationReason={validationStatus?.reason}
+          onScrollToTop={handleScrollToTop}
         />
       </Animated.View>
     </ScrollView>

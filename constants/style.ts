@@ -100,10 +100,12 @@ export const audioStyles = StyleSheet.create({
     marginTop: 16,
     color: "#000",
     fontSize: 16,
-    lineHeight: 1.4,
-    fontWeight: "900",
+    lineHeight: 24,
+    fontWeight: "bold",
     textTransform: "uppercase",
     flexShrink: 1,
+    includeFontPadding: false, 
+    textAlignVertical: "center",
   },
   controls: {
     flexDirection: "row",
@@ -792,7 +794,7 @@ export const audioSectionStyles = StyleSheet.create({
   brutalistCardAlert: {
     fontWeight: "900",
     color: "#000",
-    fontSize: 20, // 1.5rem equivalent
+    fontSize: 20,
     textTransform: "uppercase",
     flex: 1,
   },

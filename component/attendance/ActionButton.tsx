@@ -3,14 +3,13 @@ import { actionButtonStyles } from "@/constants/style";
 import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
 import { CameraCapturedPicture } from "expo-camera";
 import React from "react";
-import { Pressable, Text, View } from "react-native";
+import { Alert, Pressable, Text, View } from "react-native";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
 } from "react-native-reanimated";
 import { AudioRecording } from "../../types/attendance";
-import { InlineLoading } from "../ui/BrutalistLoadingAndError";
 
 interface ActionButtonsProps {
   photos: CameraCapturedPicture[];
@@ -21,6 +20,8 @@ interface ActionButtonsProps {
   uploading: boolean;
   totalPhotos: number;
   canSubmit: boolean;
+  validationReason?: string;
+  onScrollToTop?: () => void;
 }
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -33,6 +34,8 @@ export function ActionButtons({
   uploading,
   totalPhotos,
   canSubmit,
+  validationReason,
+  onScrollToTop,
 }: ActionButtonsProps) {
   const scale = useSharedValue(1);
 
@@ -48,36 +51,53 @@ export function ActionButtons({
     scale.value = withSpring(1);
   };
 
-  const isComplete = photos.length === totalPhotos && audioRecording !== null;
-  const isButtonDisabled = !isComplete || uploading || !canSubmit;
+  const handleUploadPress = () => {
+    if (!canSubmit) {
+      // Show alert with validation error
+      Alert.alert(
+        "Cannot Mark Attendance",
+        validationReason || "Please check your location and ensure you're within the required area during working hours.",
+        [
+          {
+            text: "View Details",
+            onPress: () => {
+              if (onScrollToTop) {
+                onScrollToTop();
+              }
+            },
+          },
+          {
+            text: "OK",
+            style: "cancel",
+          },
+        ]
+      );
+      return;
+    }
+    onUpload();
+  };
 
-  if (!canSubmit && isComplete) {
-    return (
-      <View style={actionButtonStyles.container}>
-        <InlineLoading text="Verifying location..." />
-      </View>
-    );
-  }
+  const isComplete = photos.length === totalPhotos && audioRecording !== null;
 
   return (
     <View style={actionButtonStyles.container}>
       {photos.length > 0 && (
         <View style={actionButtonStyles.buttonGroup}>
           <AnimatedPressable
-            onPress={onUpload}
+            onPress={handleUploadPress}
             onPressIn={handlePressIn}
             onPressOut={handlePressOut}
             style={[
               actionButtonStyles.primaryButton,
               animatedStyle,
-              isButtonDisabled && actionButtonStyles.buttonDisabled,
+              uploading && actionButtonStyles.buttonDisabled,
             ]}
-            disabled={isButtonDisabled}
+            disabled={uploading}
           >
             <View
               style={[
                 actionButtonStyles.brutalistButton,
-                !isButtonDisabled
+                canSubmit && !uploading
                   ? actionButtonStyles.successButton
                   : actionButtonStyles.disabledButton,
               ]}
@@ -96,6 +116,7 @@ export function ActionButtons({
           <Pressable
             onPress={onRetakeAll}
             style={actionButtonStyles.secondaryButton}
+            disabled={uploading}
           >
             <FontAwesome6
               name="arrow-rotate-left"
