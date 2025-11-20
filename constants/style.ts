@@ -2105,6 +2105,7 @@ export const logoutButtonStyles = StyleSheet.create({
 });
 
 export const profileContainerStyles = StyleSheet.create({
+  // Existing styles
   container: {
     flex: 1,
     backgroundColor: colors.offwhite,
@@ -2113,7 +2114,7 @@ export const profileContainerStyles = StyleSheet.create({
     padding: 20,
   },
   avatarSection: {
-    alignItems: "center",
+    alignItems: 'center',
     marginBottom: 30,
     paddingVertical: 20,
     paddingHorizontal: 10,
@@ -2256,6 +2257,95 @@ export const profileContainerStyles = StyleSheet.create({
   text: {
     marginTop: 10,
     alignItems: "center",
+  },
+  
+  // NEW: Loading state styles
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.offwhite,
+    padding: 20,
+  },
+  loadingCard: {
+    backgroundColor: '#fff',
+    borderWidth: 4,
+    borderColor: '#000',
+    padding: 40,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 8, height: 8 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 8,
+    minWidth: 250,
+  },
+  loadingText: {
+    marginTop: 20,
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#000',
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
+  
+  // NEW: Error state styles
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.offwhite,
+    padding: 20,
+  },
+  errorCard: {
+    backgroundColor: '#fff',
+    borderWidth: 4,
+    borderColor: '#000',
+    padding: 40,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 8, height: 8 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 8,
+    maxWidth: 320,
+  },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: brutalistColors.error,
+    marginTop: 16,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
+  errorText: {
+    fontSize: 14,
+    color: '#000',
+    textAlign: 'center',
+    marginBottom: 24,
+    fontWeight: '600',
+  },
+  retryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#fff',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderWidth: 3,
+    borderColor: '#000',
+    shadowColor: '#000',
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 4,
+  },
+  retryButtonText: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#000',
+    textTransform: 'uppercase',
   },
 });
 

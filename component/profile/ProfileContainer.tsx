@@ -1,7 +1,9 @@
+import { brutalistColors } from '@/constants/colors';
 import { profileContainerStyles } from '@/constants/style';
 import FontAwesome6 from '@expo/vector-icons/FontAwesome6';
 import React, { useEffect, useState } from 'react';
-import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { getUserAvatar, saveUserAvatar } from '../../services/avatarStorageService';
 import { getUserProfile } from '../../services/userServices';
 import { useAuthStore } from '../../store/authStore';
 import { AttendanceCalendar } from './AttendanceCalendar';
@@ -14,15 +16,30 @@ export const ProfileContainer: React.FC = () => {
   const { projects, employeeNumber } = useAuthStore();
   const [profile, setProfile] = useState<any>(null);
   const [updating, setUpdating] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [showCalendar, setShowCalendar] = useState(false);
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
 
   const fetchProfile = async () => {
     const { employeeNumber } = useAuthStore.getState();
     if (employeeNumber) {
-      const response = await getUserProfile(employeeNumber);
-      if (response.success) {
-        setProfile(response.data);
+      setLoading(true);
+      try {
+        const response = await getUserProfile(employeeNumber);
+        if (response.success) {
+          // Load avatar from AsyncStorage
+          const savedAvatar = await getUserAvatar(employeeNumber);
+          
+          setProfile({
+            ...response.data,
+            avatar: savedAvatar || response.data.avatar,
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching profile:', error);
+        Alert.alert('Error', 'Failed to load profile. Please try again.');
+      } finally {
+        setLoading(false);
       }
     }
   };
@@ -36,16 +53,75 @@ export const ProfileContainer: React.FC = () => {
     seed: string;
     url: string;
   }) => {
-    // This function needs to be implemented
+    if (!employeeNumber) {
+      Alert.alert('Error', 'Unable to save avatar. Please try logging in again.');
+      return;
+    }
+
+    setUpdating(true);
+    try {
+      const saved = await saveUserAvatar(employeeNumber, avatarData);
+      
+      if (saved) {
+        // Update local profile state
+        setProfile((prev: any) => ({
+          ...prev,
+          avatar: avatarData,
+        }));
+        
+        Alert.alert('Success', 'Avatar updated successfully!');
+      } else {
+        Alert.alert('Error', 'Failed to save avatar. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error saving avatar:', error);
+      Alert.alert('Error', 'An error occurred while saving your avatar.');
+    } finally {
+      setUpdating(false);
+    }
   };
 
+  // Loading state with neobrutalism design
+  if (loading) {
+    return (
+      <View style={profileContainerStyles.loadingContainer}>
+        <View style={profileContainerStyles.loadingCard}>
+          <ActivityIndicator size="large" color={brutalistColors.black} />
+          <Text style={profileContainerStyles.loadingText}>LOADING PROFILE...</Text>
+          <Text style={{
+            marginTop: 8,
+            fontSize: 12,
+            color: brutalistColors.gray,
+            fontWeight: '600',
+          }}>
+            Please wait
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   if (!profile) {
-    return null;
+    return (
+      <View style={profileContainerStyles.errorContainer}>
+        <View style={profileContainerStyles.errorCard}>
+          <FontAwesome6 name="exclamation-triangle" size={48} color={brutalistColors.error} />
+          <Text style={profileContainerStyles.errorTitle}>PROFILE NOT FOUND</Text>
+          <Text style={profileContainerStyles.errorText}>Unable to load your profile data</Text>
+          <TouchableOpacity 
+            style={profileContainerStyles.retryButton}
+            onPress={fetchProfile}
+          >
+            <FontAwesome6 name="arrows-rotate" size={16} color={brutalistColors.black} />
+            <Text style={profileContainerStyles.retryButtonText}>RETRY</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
   }
 
   // Get department from projects
   const department = projects.length > 0 ? projects[0].department : 'Not Assigned';
-  console.log("department",department)
 
   return (
     <ScrollView style={profileContainerStyles.container} showsVerticalScrollIndicator={false}>
@@ -67,9 +143,33 @@ export const ProfileContainer: React.FC = () => {
               </View>
             )}
             <View style={profileContainerStyles.editOverlay}>
-              <FontAwesome6 name="camera" size={14} color="#fff" />
+              {updating ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <FontAwesome6 name="camera" size={14} color="#fff" />
+              )}
             </View>
           </TouchableOpacity>
+          
+          {updating && (
+            <View style={{
+              marginTop: 12,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+            }}>
+              <ActivityIndicator size="small" color={brutalistColors.black} />
+              <Text style={{
+                fontSize: 12,
+                fontWeight: '700',
+                color: brutalistColors.black,
+                textTransform: 'uppercase',
+              }}>
+                UPDATING AVATAR...
+              </Text>
+            </View>
+          )}
+          
           <View style={profileContainerStyles.text}>
             <Text style={profileContainerStyles.usernameText}>{profile.username}</Text>
           </View>
