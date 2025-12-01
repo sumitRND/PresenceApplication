@@ -36,6 +36,7 @@ interface HomeViewProps {
   uploading: boolean;
   totalPhotos: number;
   todayAttendanceMarked?: boolean;
+  onScrollToTop?: ()=>void;
 }
 
 
@@ -439,6 +440,7 @@ export function HomeView({
   uploading,
   totalPhotos,
   todayAttendanceMarked = false,
+  onScrollToTop,
 }: HomeViewProps) {
   const { userLocationType, department } = useAttendanceStore();
   const geofence = useGeofence(userLocationType);
@@ -519,7 +521,12 @@ export function HomeView({
   };
 
   const handleScrollToTop = () => {
-    scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+    if (onScrollToTop) {
+      onScrollToTop();
+    }
+    setTimeout(() => {
+      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+    }, 100);
   };
 
   const formatTime = (timeString: string | null) => {

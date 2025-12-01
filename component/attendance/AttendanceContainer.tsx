@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Alert, AppState, FlatList, ListRenderItem } from "react-native";
 
 import { useGeofence } from "../../hooks/useGeofence";
@@ -52,7 +52,16 @@ export function AttendanceContainer() {
   const [holidayInfo, setHolidayInfo] = useState<Holiday | null>(null);
   const [checkingHoliday, setCheckingHoliday] = useState(true);
 
+  const flatListRef = useRef<FlatList>(null);
+
   const geofence = useGeofence(userLocationType);
+
+  const scrollToAttendance = () => {
+    flatListRef.current?.scrollToOffset({
+      offset: 0,
+      animated: true,
+    });
+  };
 
   useEffect(() => {
     const checkHolidayStatus = async () => {
@@ -296,6 +305,7 @@ export function AttendanceContainer() {
                 uploading={uploading}
                 totalPhotos={1}
                 todayAttendanceMarked={todayAttendanceMarked}
+                onScrollToTop={scrollToAttendance}
               />
             );
 
@@ -306,6 +316,7 @@ export function AttendanceContainer() {
 
       return (
         <FlatList
+          ref={flatListRef}
           data={data}
           renderItem={renderItem}
           keyExtractor={(i) => i.id}
@@ -313,6 +324,16 @@ export function AttendanceContainer() {
           contentContainerStyle={attendanceContainerStyles.contentContainer}
           showsVerticalScrollIndicator={false}
           scrollEnabled={!isMapTouched}
+          onScrollToIndexFailed={(info) => {
+            const wait = new Promise((resolve) => setTimeout(resolve, 500));
+            wait.then(() => {
+              flatListRef.current?.scrollToIndex({
+                index: info.index,
+                animated: true,
+                viewPosition: 0,
+              });
+            });
+          }}
         />
       );
   }
